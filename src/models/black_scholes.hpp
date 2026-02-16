@@ -148,6 +148,8 @@ class BlackScholesModel final : public StochasticModel {
             return param_names_;
         }
 
+        const std::vector<DSO::FactorType>& factors() const override {return factors_;}
+
     private:
         torch::Tensor get_sigma_() const {
             return config_.use_log_params ? torch::exp(log_sig_) : sig_;
@@ -167,6 +169,8 @@ class BlackScholesModel final : public StochasticModel {
         torch::Tensor sig_;
         torch::Tensor log_sig_;
         std::vector<std::string> param_names_;
+
+        std::vector<DSO::FactorType> factors_ = {DSO::FactorType::Spot};
 };
 
 } // namespace DSO

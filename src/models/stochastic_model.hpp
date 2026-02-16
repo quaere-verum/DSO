@@ -16,5 +16,6 @@ class StochasticModel {
         ) = 0;
         virtual std::vector<torch::Tensor> parameters() = 0;
         virtual const std::vector<std::string>& parameter_names() const = 0;
+        virtual const std::vector<DSO::FactorType>& factors() const = 0;
 };
 } // namespace DSO

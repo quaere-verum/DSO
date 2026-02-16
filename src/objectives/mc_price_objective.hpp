@@ -22,6 +22,7 @@ public:
     : n_paths_(n_paths)
     , model_(model)
     , product_(product) {
+        TORCH_CHECK(model.factors() == product.factors(), "model factors must  be same as product factors")
         auto opt = torch::TensorOptions().dtype(torch::kFloat32);
         target_price_ = torch::tensor({target_price}, opt);
         param_names_ = model_.parameter_names();
