@@ -97,9 +97,9 @@ class BlackScholesModel final : public StochasticModel {
                     TORCH_CHECK(ctx.device.is_cpu(), "BlackScholesModel: CPU only");
 
                     const int64_t B = static_cast<int64_t>(batch_n);
-                    ctx.ensure_tensor_({B, n_steps});
+                    torch::Tensor z = torch::empty({B, n_steps}, torch::TensorOptions().dtype(torch::kFloat32).device(device)).contiguous();
 
-                    float* z_ptr = ctx.z.data_ptr<float>();
+                    float* z_ptr = z.data_ptr<float>();
 
                     for (int64_t i = 0; i < B; ++i) {
                         const uint64_t path_idx = static_cast<uint64_t>(first_path) + static_cast<uint64_t>(i);
@@ -107,7 +107,7 @@ class BlackScholesModel final : public StochasticModel {
                         ctx.rng->fill_normal(z_ptr + i * n_steps, n_steps, 0.0, 1.0);
                     }
 
-                    const torch::Tensor increments = drift + ctx.z * diff;
+                    const torch::Tensor increments = drift + z * diff;
 
                     const torch::Tensor log_paths = log_s0 + torch::cumsum(increments, /*dim=*/1);
                     const torch::Tensor S_future = torch::exp(log_paths);

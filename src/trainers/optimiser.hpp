@@ -4,6 +4,6 @@
 namespace DSO {
 class Optimiser {
     public:
-        virtual void step(DSO::DifferentiableObjective& objective) = 0;
+        virtual torch::Tensor step(DSO::DifferentiableObjective& objective) = 0;
 };
 }

@@ -13,5 +13,10 @@
 
 #include "products/product.hpp"
 #include "products/european_option.hpp"
+#include "products/asian_option.hpp"
 
 #include "objectives/mc_price_objective.hpp"
+
+#include "trainers/optimiser.hpp"
+#include "trainers/lbfgs_wrapper.hpp"
+#include "trainers/adam_wrapper.hpp"

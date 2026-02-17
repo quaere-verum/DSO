@@ -4,16 +4,20 @@
 #include <chrono>
 
 int main() {
+    torch::set_num_threads(1);
+    torch::set_num_interop_threads(1);
+
     try {
-        size_t num_threads = 8;
-        size_t n_paths = 1ULL << 14;
-        size_t batch_size = 1ULL << 10;
+        constexpr size_t num_threads = 8;
+        constexpr size_t n_paths = 1ULL << 13;
+        constexpr size_t batch_size = 2048;
         double maturity = 1.0;
         double strike = 100.0;
+        size_t n_steps = static_cast<size_t>(maturity * 365.0);
         double s0 = 100.0;
         double r = 0.0;
         double sigma = 0.25;
-        auto product = DSO::EuropeanCallOption(maturity, strike);
+        auto product = DSO::AsianCallOption(maturity, strike, n_steps);
         auto mc_config = DSO::MonteCarloExecutor::Config(
             num_threads,
             batch_size,
@@ -37,18 +41,16 @@ int main() {
         );
 
         model.init(product);
-        torch::optim::Adam optim(objective.parameters(), torch::optim::AdamOptions(1e-3));
+        // auto optim = DSO::LBFGS(torch::optim::LBFGS(objective.parameters(), torch::optim::LBFGSOptions(1.0).line_search_fn("strong_wolfe")));
+        auto optim = DSO::Adam(torch::optim::Adam(objective.parameters(), torch::optim::AdamOptions(1e-3)));
 
         auto start = std::chrono::high_resolution_clock::now();
 
-        for (int iter = 0; iter < 1000; ++iter) {
-            optim.zero_grad();
-            auto loss = objective.forward();
-            loss.backward();
-            optim.step();
+        for (int iter = 0; iter < 100; ++iter) {
+            torch::Tensor loss = optim.step(objective);
             
 
-            if (iter % 25 == 0) {
+            if (iter % 10 == 0) {
                 // objective.resample_paths(n_paths);
                 std::cout << "iter=" << iter
                         << " loss=" << loss.item<float>() << "\n";

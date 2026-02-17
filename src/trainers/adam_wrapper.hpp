@@ -9,11 +9,12 @@ class Adam final : public Optimiser {
         Adam(torch::optim::Adam optim)
         : optim_(std::move(optim)) {}
 
-        void step(DSO::DifferentiableObjective& objective) {
+        torch::Tensor step(DSO::DifferentiableObjective& objective) {
             optim_.zero_grad();
             auto loss = objective.forward();
             loss.backward();
             optim_.step();
+            return loss;
         }
     private:
         torch::optim::Adam optim_;
