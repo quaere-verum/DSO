@@ -31,7 +31,13 @@ class Product {
         virtual const std::vector<FactorType>& factors() const = 0;
         virtual const bool include_t0() const = 0;
 
-        virtual void compute_payoff(torch::Tensor& paths, torch::Tensor& payoffs) const = 0;
+        virtual void compute_payoff(const torch::Tensor& paths, torch::Tensor& payoffs) const = 0;
 
+};
+
+class Option : public Product {
+    public:
+        virtual const double strike() const = 0;
+        virtual const double maturity() const = 0;
 };
 }

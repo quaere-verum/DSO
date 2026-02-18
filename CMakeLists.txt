@@ -16,6 +16,8 @@ if(MSVC)
   set(CMAKE_CXX_STANDARD 23)
   set(CMAKE_CXX_STANDARD_REQUIRED ON)
   set(CMAKE_CXX_EXTENSIONS OFF)
+  add_compile_options(/O2 /fp:fast /arch:AVX2)
+  add_compile_options(/Qvec-report:1)
 endif()
 
 # -------------------------------

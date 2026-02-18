@@ -9,12 +9,9 @@ class LBFGS final : public Optimiser {
         LBFGS(torch::optim::LBFGS optim)
         : optim_(std::move(optim)) {}
 
-        torch::Tensor step(DSO::DifferentiableObjective& objective) {
+        torch::Tensor step(DSO::GradientEvaluator& eval) {
             auto closure = [&]() -> torch::Tensor {
-                optim_.zero_grad();
-                auto loss = objective.forward();
-                loss.backward();
-                return loss;
+                return eval.evaluate_and_set_grads();
             };
             return optim_.step(closure);
         }

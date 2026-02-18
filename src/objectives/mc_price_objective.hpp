@@ -1,71 +1,52 @@
 #pragma once
 #include <torch/torch.h>
-#include <vector>
-#include <string>
-#include <memory>
-
 #include "core/stochastic_program.hpp"
 #include "models/stochastic_model.hpp"
 #include "products/product.hpp"
-#include "trainers/adam_wrapper.hpp"
+#include "core/threading.hpp"
 
 namespace DSO {
-
 class MCPriceObjective final : public StochasticProgram {
-public:
-    MCPriceObjective(
-        double target_price,
-        size_t n_paths,
-        StochasticModel& model,
-        const Product& product
-    )
-    : n_paths_(n_paths)
-    , model_(model)
-    , product_(product) {
-        TORCH_CHECK(model.factors() == product.factors(), "model factors must  be same as product factors")
-        auto opt = torch::TensorOptions().dtype(torch::kFloat32);
-        target_price_ = torch::tensor({target_price}, opt);
-        param_names_ = model_.parameter_names();
-    }
-
-    torch::Tensor forward() override {
-        auto paths = model_.simulate_paths(n_paths_, product_, rng_stream_offset_);
-        if (!payoffs_.defined() || payoffs_.numel() != paths.size(0)) {
-            payoffs_ = torch::empty({paths.size(0)}, paths.options().dtype(torch::kFloat32));
+    public:
+        MCPriceObjective(
+            double target_price,
+            size_t n_paths,
+            const Product& product
+        )
+        : n_paths_(n_paths)
+        , product_(product) {
+            auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
+            target_price_ = torch::tensor({static_cast<float>(target_price)}, opt);
         }
-        product_.compute_payoff(paths, payoffs_);
 
-        // TODO: Add discounting
-        torch::Tensor price = payoffs_.mean();
-        auto diff = price - target_price_;
-        return diff * diff; 
-    }
+        torch::Tensor loss(
+            const torch::Tensor& simulated,
+            const BatchSpec& /*batch*/,
+            const EvalContext& /*ctx*/
+        ) override {
+            torch::Tensor payoffs = torch::empty({simulated.size(0)}, simulated.options().dtype(torch::kFloat32));
+            product_.compute_payoff(simulated, payoffs);
+            torch::Tensor price = payoffs.mean(); // TODO discounting
+            torch::Tensor diff  = price - target_price_;
+            return diff * diff;
+        }
 
-    void resample_paths(size_t n_paths) override {
-        static constexpr uint64_t stride = 1ULL << 32;
-        rng_stream_offset_ = (epoch_++) * stride;
-        n_paths_ = n_paths;
-    }
+        void resample_paths(size_t n_paths) override {
+            n_paths_ = n_paths;
+            ++epoch_;
+            epoch_rng_offset_ = static_cast<uint64_t>(epoch_) * (1ULL << 32);
+        }
 
-    std::vector<torch::Tensor> parameters() override {
-        return model_.parameters();
-    }
+        size_t n_paths() const { return n_paths_; }
+        uint64_t epoch_rng_offset() const { return epoch_rng_offset_; }
 
-    const std::vector<std::string>& parameter_names() const override {
-        return param_names_;
-    }
+    private:
+        torch::Tensor target_price_;
+        size_t n_paths_;
 
-private:
-    torch::Tensor target_price_;
-    torch::Tensor payoffs_;
+        const Product& product_;
 
-    size_t n_paths_;
-    StochasticModel& model_;
-    const Product& product_;
-    std::vector<std::string> param_names_;
-
-    size_t rng_stream_offset_ = 0;
-    size_t epoch_ = 0;
+        size_t epoch_ = 0;
+        uint64_t epoch_rng_offset_ = 0;
 };
-
 } // namespace DSO

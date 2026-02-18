@@ -1,14 +1,20 @@
 #pragma once
 #include <torch/torch.h>
+#include "core/threading.hpp"
 #include <vector>
 #include <string>
 
 namespace DSO {
+
 class DifferentiableObjective {
-    public:
-        virtual ~DifferentiableObjective() = default;
-        virtual torch::Tensor forward() = 0;
-        virtual std::vector<torch::Tensor> parameters() = 0;
-        virtual const std::vector<std::string>& parameter_names() const = 0;
+public:
+    virtual ~DifferentiableObjective() = default;
+    virtual torch::Tensor loss(
+        const torch::Tensor& simulated,
+        const BatchSpec& batch,
+        const EvalContext& ctx
+    ) = 0;
+    virtual void bind(const SimulationGridSpec& spec) = 0;
 };
+
 } // namespace DSO
