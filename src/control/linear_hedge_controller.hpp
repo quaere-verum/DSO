@@ -29,8 +29,9 @@ public:
 
         auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
 
-        w_ = torch::zeros({2}, opt).add_(1e-3).requires_grad_(true);
-        b_ = torch::zeros({1}, opt).add_(1e-3).requires_grad_(true);
+        w_ = torch::tensor({1.0, 0.5}, opt).requires_grad_(true);
+        // w_ = torch::ones({2}, opt).add_(1).requires_grad_(true);
+        b_ = torch::zeros({1}, opt).add_(0.509).requires_grad_(true);
 
         names_ = {"hedge_w", "hedge_b"};
     }

@@ -163,7 +163,7 @@ private:
                     torch::Tensor g = grads[i].detach();
                     out.grad_sum[i].add_(g * (float)batch_n);
                 }
-                out.loss_sum = loss.detach().item<double>();
+                out.loss_sum = loss.detach().item<double>() * (double)batch_n;
                 out.price_sum = 0.0;
                 out.n_paths = batch_n;
             }

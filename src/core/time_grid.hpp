@@ -9,7 +9,7 @@ namespace DSO {
 
 constexpr double TIME_EPS = 1e-12;
 
-inline std::vector<double> make_time_grid(double maturity, double dt, bool include_maturity = false) {
+inline std::vector<double> make_time_grid(double maturity, double dt, bool include_maturity = true) {
     TORCH_CHECK(maturity > 0.0, "make_time_grid: maturity must be > 0");
     TORCH_CHECK(dt > 0, "make_time_grid: dt must be > 0");
 

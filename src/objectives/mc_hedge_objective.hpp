@@ -10,11 +10,13 @@ class MCHedgeObjective final : public StochasticProgram {
     public:
         MCHedgeObjective(
             size_t n_paths,
+            double initial_cash,
             const Product& product,
             Controller& controller,
             std::vector<double> control_times
         )
         : n_paths_(n_paths)
+        , initial_cash_(initial_cash)
         , product_(product)
         , controller_(controller)
         , control_times_(std::move(control_times)) {}
@@ -34,8 +36,7 @@ class MCHedgeObjective final : public StochasticProgram {
             torch::Tensor payoff = torch::empty({B}, simulated.options().dtype(torch::kFloat32));
             product_.compute_payoff(simulated, payoff);
 
-            torch::Tensor pnl = torch::zeros({B}, simulated.options().dtype(torch::kFloat32));
-
+            torch::Tensor value = torch::full({B}, initial_cash_, simulated.options().dtype(torch::kFloat32));
 
             for (size_t k = 0; k + 1 < control_indices_.size(); ++k) {
                 const int64_t t0_idx = control_indices_[k];
@@ -44,7 +45,6 @@ class MCHedgeObjective final : public StochasticProgram {
                 // spot at decision time
                 torch::Tensor S0 = simulated.select(1, t0_idx);
                 torch::Tensor S1 = simulated.select(1, t1_idx);
-
                 MarketView mv;
                 mv.S_t = S0;
                 mv.t = control_times_[k];
@@ -59,10 +59,9 @@ class MCHedgeObjective final : public StochasticProgram {
                 }
                 TORCH_CHECK(hedge.sizes() == torch::IntArrayRef({B}), "MCHedgeObjective: controller action must be [B] or [B,1]");
 
-                pnl = pnl + hedge * (S1 - S0);
+                value = value + hedge * (S1 - S0);
             }
-
-            return pnl.sub_(payoff).square_().mean();
+            return value.sub_(payoff).square_().mean();
         }
 
         void resample_paths(size_t n_paths) override {
@@ -96,6 +95,7 @@ class MCHedgeObjective final : public StochasticProgram {
         }
     private:
         size_t n_paths_;
+        double initial_cash_;
         const Product& product_;
         Controller& controller_;
         std::vector<double> control_times_;

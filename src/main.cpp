@@ -14,14 +14,18 @@ int main() {
     try {
         constexpr size_t num_threads = 12;
         constexpr size_t n_paths = 1ULL << 18;
-        constexpr size_t batch_size = 256;
+        constexpr size_t batch_size = 4096;
         double maturity = 1.0;
         double strike = 100.0;
         size_t n_steps = static_cast<size_t>(maturity * 365.0);
         double s0 = 100.0;
         double r = 0.0;
-        double sigma = 0.25;
-        std::vector<double> control_times = DSO::make_time_grid(maturity, maturity / 12.0, false);
+        double sigma = 0.20;
+        std::vector<double> control_times = DSO::make_time_grid(maturity, maturity / 365.0, true);
+        std::cout << "control_times=\n";
+        for (auto t : control_times) {
+            std::cout << t << "\n";
+        }
         // auto product = DSO::AsianCallOption(maturity, strike, n_steps);
         auto product = DSO::EuropeanCallOption(maturity, strike);
         auto mc_config = DSO::MonteCarloExecutor::Config(
@@ -34,13 +38,17 @@ int main() {
             /*use_log_params=*/true
         );
         std::vector<double> master_time_grid = DSO::merge_time_grids(control_times, product.time_grid());
+        std::cout << "master_time_grid=\n";
+        for (auto t : master_time_grid) {
+            std::cout << t << "\n";
+        }
         DSO::SimulationGridSpec gridpsec;
-        gridpsec.include_t0 = product.include_t0();
+        gridpsec.include_t0 = product.include_t0() || control_times.front() < 1e-12;
         gridpsec.time_grid = master_time_grid;
         auto feature_extractor = std::make_unique<DSO::OptionFeatureExtractor>();
         auto controller = DSO::LinearHedgeController(
             std::move(feature_extractor),
-            DSO::LinearHedgeController::Config(true)
+            DSO::LinearHedgeController::Config(false)
         );
         std::cout << "Controller initiated" << std::endl;
         auto model = DSO::BlackScholesModel(
@@ -58,6 +66,7 @@ int main() {
         
         auto objective = DSO::MCHedgeObjective(
             n_paths,
+            7.97,
             product, 
             controller,
             control_times
