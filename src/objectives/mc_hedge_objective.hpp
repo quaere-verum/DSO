@@ -39,29 +39,22 @@ class MCHedgeObjective final : public StochasticProgram {
             product_.compute_payoff(simulated, payoff);
 
             torch::Tensor value = torch::full({B}, (float)initial_cash_, simulated.options().dtype(torch::kFloat32));
+            MarketView mv;
 
             for (size_t k = 0; k < control_intervals_.n_intervals(); ++k) {
                 const int64_t t0_idx = control_indices_.start_idx[k];
                 const int64_t t1_idx = control_indices_.end_idx[k];
 
-                // spot at decision time
                 torch::Tensor S0 = simulated.select(1, t0_idx);
                 torch::Tensor S1 = simulated.select(1, t1_idx);
-                MarketView mv;
                 mv.S_t = S0;
                 mv.t = control_intervals_.start_times[k];
                 mv.t_next = control_intervals_.end_times[k];
                 mv.t_index = k;
 
-                torch::Tensor hedge = controller_.action(mv, product_, batch, ctx);
-
-                if (hedge.dim() == 2) {
-                    TORCH_CHECK(hedge.size(1) == 1, "MCHedgeObjective: controller action [B,1] expected if 2D");
-                    hedge = hedge.squeeze(1);
-                }
-                TORCH_CHECK(hedge.sizes() == torch::IntArrayRef({B}), "MCHedgeObjective: controller action must be [B] or [B,1]");
-
-                value = value + hedge * (S1 - S0);
+                torch::Tensor hedge = controller_.action(mv, batch, ctx);
+                auto diff = S1 - S0;
+                value.addcmul_(hedge, diff);
             }
             return value.sub_(payoff).square_().mean();
         }

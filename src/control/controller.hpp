@@ -12,7 +12,6 @@ public:
     virtual ~Controller() = default;
     virtual torch::Tensor action(
         const MarketView& mv,
-        const Product& product,
         const BatchSpec& batch,
         const EvalContext& ctx
     ) = 0;

@@ -17,7 +17,6 @@ class FeatureExtractor {
 
         virtual torch::Tensor features(
             const MarketView& mv,
-            const Product& product,
             const BatchSpec& batch,
             const EvalContext& ctx
         ) = 0;

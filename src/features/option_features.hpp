@@ -5,30 +5,32 @@
 namespace DSO {
 class OptionFeatureExtractor final : public FeatureExtractor {
     public:
+        OptionFeatureExtractor(const Option& option) 
+        : option_(option) {
+            auto opts = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
+            strike_inv_ = torch::tensor(1.0 / option_.strike(), opts);
+            tau_ = torch::tensor(option_.maturity(), opts);
+        }
+
         torch::Tensor features(
             const MarketView& mv,
-            const Product& product,
             const BatchSpec& batch,
             const EvalContext& ctx
         ) override {
-            auto* opt = dynamic_cast<const Option*>(&product);
-            TORCH_CHECK(opt != nullptr, "OptionFeatureExtractor requires an Option product");
-
             auto out = torch::empty({(int64_t)batch.n_paths, 2}, torch::TensorOptions().dtype(ctx.dtype).device(ctx.device));
-
             const auto S = mv.S_t;
-            const float K = static_cast<float>(opt->strike());
-            const float tau = static_cast<float>(opt->maturity() - mv.t);
 
             auto col0 = out.select(1, 0);
-            col0.copy_(S);
-            col0.div_(K);
-            col0.log_();
-            out.select(1, 1).fill_(tau);
+            torch::log_out(col0, S * strike_inv_);
+            out.select(1, 1).copy_(tau_);
 
             return out;
         }
 
         int64_t feature_dim() const override {return 2;};
+    private:
+        const Option& option_;
+        torch::Tensor strike_inv_;
+        torch::Tensor tau_;
 };
 }

@@ -38,11 +38,10 @@ public:
 
     torch::Tensor action(
         const MarketView& mv,
-        const Product& product,
         const BatchSpec& batch,
         const EvalContext& ctx
     ) override {
-        torch::Tensor x = feature_extractor_->features(mv, product, batch, ctx);
+        torch::Tensor x = feature_extractor_->features(mv, batch, ctx);
         TORCH_CHECK(x.dim() == 2 && x.size(1) == 2, "LinearHedgeController: features must be [B,2]");
         torch::Tensor raw = torch::matmul(x, w_) + b_;
         torch::Tensor hedge = raw;

@@ -64,7 +64,7 @@ class BlackScholesModel final : public StochasticModel {
             const int64_t n_steps = dt_.numel();
             const int64_t B = static_cast<int64_t>(batch.n_paths);
 
-            torch::Tensor z = torch::empty({B, n_steps}, torch::TensorOptions().dtype(torch::kFloat32).device(device)).contiguous();
+            auto z = torch::empty({B, n_steps}, torch::TensorOptions().device(torch::kCPU).dtype(torch::kFloat32));
 
             float* z_ptr = z.data_ptr<float>();
 
@@ -78,20 +78,6 @@ class BlackScholesModel final : public StochasticModel {
                     ctx.rng->seed_path(path_idx + batch.rng_offset);
                     ctx.rng->fill_normal(z_ptr + i * n_steps, n_steps, 0.0, 1.0);
                 }
-                // NormalVR vr;
-                // vr.antithetic = true;
-                // vr.moment_match = false;
-
-                // ctx.rng->fill_normal_block(
-                //     z_ptr, 
-                //     B, 
-                //     (size_t)n_steps,
-                //     batch.first_path,
-                //     batch.rng_offset,
-                //     vr,
-                //     0.0f, 
-                //     1.0f
-                // );
             }
             
 

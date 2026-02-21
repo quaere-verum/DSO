@@ -6,13 +6,15 @@
 #include <algorithm>
 #include <limits>
 #include <cmath>
+#include <thread>
 
 int main() {
+    const size_t cores = std::thread::hardware_concurrency();
+    const size_t num_threads = cores;
     torch::set_num_threads(1);
     torch::set_num_interop_threads(1);
 
     try {
-        constexpr size_t num_threads = 15;
         constexpr size_t n_paths = 1ULL << 18;
         constexpr size_t batch_size = 1ULL << 13;
         double maturity = 1.0;
@@ -32,30 +34,22 @@ int main() {
             control_times.end()
         );
 
-        std::cout << "control_times=\n";
-        for (auto t : control_times) {
-            std::cout << t << "\n";
-        }
         // auto product = DSO::AsianCallOption(maturity, strike, n_steps);
         auto product = DSO::EuropeanCallOption(maturity, strike);
         auto mc_config = DSO::MonteCarloExecutor::Config(
             num_threads,
             batch_size,
             /*seed=*/42,
-            /*collect_perf*/false
+            /*collect_perf*/true
         );
         auto black_scholes_config = DSO::BlackScholesModel::Config(
             /*use_log_params=*/true
         );
         std::vector<double> master_time_grid = DSO::merge_time_grids(control_times, product.time_grid());
-        std::cout << "master_time_grid=\n";
-        for (auto t : master_time_grid) {
-            std::cout << t << "\n";
-        }
         DSO::SimulationGridSpec gridpsec;
         gridpsec.include_t0 = product.include_t0() || control_times.front() < 1e-12;
         gridpsec.time_grid = master_time_grid;
-        auto feature_extractor = std::make_unique<DSO::OptionFeatureExtractor>();
+        auto feature_extractor = std::make_unique<DSO::OptionFeatureExtractor>(product);
         auto controller = DSO::LinearHedgeController(
             std::move(feature_extractor),
             DSO::LinearHedgeController::Config(false)
