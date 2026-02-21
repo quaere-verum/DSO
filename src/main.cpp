@@ -12,9 +12,9 @@ int main() {
     torch::set_num_interop_threads(1);
 
     try {
-        constexpr size_t num_threads = 12;
+        constexpr size_t num_threads = 15;
         constexpr size_t n_paths = 1ULL << 18;
-        constexpr size_t batch_size = 4096;
+        constexpr size_t batch_size = 1ULL << 13;
         double maturity = 1.0;
         double strike = 100.0;
         size_t n_steps = static_cast<size_t>(maturity * 365.0);
@@ -22,6 +22,16 @@ int main() {
         double r = 0.0;
         double sigma = 0.20;
         std::vector<double> control_times = DSO::make_time_grid(maturity, maturity / 365.0, true);
+        DSO::ControlIntervals control_intervals;
+        control_intervals.start_times = std::vector<double>(
+            control_times.begin(),
+            control_times.end() - 1
+        );
+        control_intervals.end_times = std::vector<double>(
+            control_times.begin() + 1,
+            control_times.end()
+        );
+
         std::cout << "control_times=\n";
         for (auto t : control_times) {
             std::cout << t << "\n";
@@ -69,7 +79,7 @@ int main() {
             7.97,
             product, 
             controller,
-            control_times
+            control_intervals
         );
         std::cout << "Objective initiated" << std::endl;
         model.init(gridpsec);

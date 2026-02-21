@@ -39,6 +39,7 @@ class MCPriceObjective final : public StochasticProgram {
 
         size_t n_paths() const { return n_paths_; }
         uint64_t epoch_rng_offset() const { return epoch_rng_offset_; }
+        void bind(const SimulationGridSpec& spec) override { return; }
 
     private:
         torch::Tensor target_price_;
