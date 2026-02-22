@@ -7,6 +7,11 @@
 #include <string>
 
 namespace DSO {
+enum class ModelEvalMode: uint8_t {
+    VALUATION = 1,
+    CALIBRATION = 2,
+    HEDGING = 3
+};
 class StochasticModel {
     public:
         virtual ~StochasticModel() = default;
@@ -19,7 +24,7 @@ class StochasticModel {
         virtual std::vector<torch::Tensor> parameters() = 0;
         virtual const std::vector<std::string>& parameter_names() const = 0;
         virtual const std::vector<DSO::FactorType>& factors() const = 0;
-        virtual void set_training(bool training) = 0;
+        virtual void set_mode(ModelEvalMode mode) = 0;
     };
 
 } // namespace DSO

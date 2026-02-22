@@ -75,15 +75,11 @@ public:
 
         TORCH_CHECK(config_.n_paths > 0, "MonteCarloGradientTrainer: n_paths must be > 0");
         TORCH_CHECK(model_.factors() == product_.factors(), "MonteCarloGradientTrainer: model factors must match product factors");
-
+        
         if (!controller_) {
-            params_ = model_.parameters();
-            param_names_ = model_.parameter_names();
-            model_.set_training(true);
+            model_.set_mode(DSO::ModelEvalMode::CALIBRATION);
         } else {
-            model_.set_training(false);
-            params_ = controller_->parameters();
-            param_names_ = controller_->parameter_names();
+            model_.set_mode(DSO::ModelEvalMode::HEDGING);
             controller_->set_training(true);
         }
     }

@@ -4,9 +4,10 @@
 namespace DSO {
 class EuropeanCallOption final : public Option {
     public:
-        EuropeanCallOption(double maturity, double strike)
+        EuropeanCallOption(double maturity, double strike, double softplus_beta = 1.0)
         : maturity_(maturity)
-        , strike_(strike) {
+        , strike_(strike)
+        , softplus_beta_(softplus_beta) {
             time_grid_.push_back(0.0);
             time_grid_.push_back(maturity);
         };
@@ -19,6 +20,11 @@ class EuropeanCallOption final : public Option {
             payoffs = torch::relu(final_prices - strike_);
         };
 
+        void compute_smooth_payoff(const torch::Tensor& paths, torch::Tensor& payoffs) const override {
+            auto final_prices = paths.select(-1, -1);
+            payoffs = torch::softplus(final_prices - strike_, softplus_beta_);
+        };
+
         const bool include_t0() const override {return false;}
         const double strike() const override { return strike_; }
         const double maturity() const override { return maturity_; }
@@ -26,6 +32,7 @@ class EuropeanCallOption final : public Option {
     private:
         double maturity_;
         double strike_;
+        double softplus_beta_;
         std::vector<double> time_grid_;
         std::vector<DSO::FactorType> factors_ = {DSO::FactorType::Spot};
 };
