@@ -16,10 +16,40 @@ namespace DSO {
 
 class BlackScholesModel final : public StochasticModel {
     public:
-        BlackScholesModel(double s0, double r, double sigma)
+        BlackScholesModel(double s0, double r, double sigma, ModelEvalMode mode)
         : s0_(s0)
         , r_(r)
-        , sigma_(sigma) {}
+        , sigma_(sigma)
+        , mode_(mode) {
+            auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
+            switch (mode) {
+                case ModelEvalMode::CALIBRATION: {
+                    log_sigma_tensor_ = torch::tensor({(float)std::log(sigma_)}, opt).requires_grad_(true);
+                    s0_tensor_ = torch::tensor({(float)s0_}, opt);
+                    r_tensor_ = torch::tensor({(float)r_}, opt);
+                    parameters_ = {log_sigma_tensor_};
+                    param_names_ = {"log_sigma"};
+                    use_log_params_ = true;
+                    break;
+                }
+                case ModelEvalMode::VALUATION: {
+                    sigma_tensor_ = torch::tensor({(float)sigma_}, opt).requires_grad_(true);
+                    s0_tensor_ = torch::tensor({(float)s0_}, opt).requires_grad_(true);
+                    r_tensor_ = torch::tensor({(float)r_}, opt).requires_grad_(true);
+                    parameters_ = {sigma_tensor_, s0_tensor_, r_tensor_};
+                    param_names_ = {"sigma", "s0", "r"};
+                    break;
+                }
+                case ModelEvalMode::HEDGING: {
+                    sigma_tensor_ = torch::tensor({(float)sigma_}, opt);
+                    s0_tensor_ = torch::tensor({(float)s0_}, opt);
+                    r_tensor_ = torch::tensor({(float)r_}, opt);
+                    parameters_ = {};
+                    param_names_ = {};
+                    break;
+                }
+            }
+        }
 
         void init(const SimulationGridSpec& spec) override {
             const auto& time_grid = spec.time_grid;
@@ -43,7 +73,8 @@ class BlackScholesModel final : public StochasticModel {
             Controller*
         ) override {
             TORCH_CHECK(batch.n_paths > 0, "batch.n_paths must be > 0");
-            TORCH_CHECK(init_spec_ != nullptr, "call init(product) before simulate_batch");
+            TORCH_CHECK(init_spec_ != nullptr, "call bind(gridspec) before simulate_batch");
+            TORCH_CHECK(mode_ != ModelEvalMode::UNINITIATLISED, "call set_mode(mode) before simulate_batch")
             TORCH_CHECK(ctx.rng.get() != nullptr, "ThreadContext.rng must be set");
 
             const auto device = torch::kCPU;
@@ -84,7 +115,7 @@ class BlackScholesModel final : public StochasticModel {
         }
 
 
-        std::vector<torch::Tensor> parameters() override {
+        std::vector<torch::Tensor>& parameters() override {
             return parameters_;
         }
 
@@ -94,35 +125,8 @@ class BlackScholesModel final : public StochasticModel {
 
         const std::vector<DSO::FactorType>& factors() const override {return factors_;}
 
-        void set_mode(ModelEvalMode mode) override {
-            auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
-            switch (mode) {
-                case ModelEvalMode::CALIBRATION: {
-                    log_sigma_tensor_ = torch::tensor({(float)std::log(sigma_)}, opt).requires_grad_(true);
-                    s0_tensor_ = torch::tensor({(float)s0_}, opt);
-                    r_tensor_ = torch::tensor({(float)r_}, opt);
-                    parameters_ = {log_sigma_tensor_};
-                    param_names_ = {"log_sigma"};
-                    use_log_params_ = true;
-                    break;
-                }
-                case ModelEvalMode::VALUATION: {
-                    sigma_tensor_ = torch::tensor({(float)sigma_}, opt).requires_grad_(true);
-                    s0_tensor_ = torch::tensor({(float)s0_}, opt).requires_grad_(true);
-                    r_tensor_ = torch::tensor({(float)r_}, opt).requires_grad_(true);
-                    parameters_ = {sigma_tensor_, s0_tensor_, r_tensor_};
-                    param_names_ = {"sigma", "s0", "r"};
-                    break;
-                }
-                case ModelEvalMode::HEDGING: {
-                    sigma_tensor_ = torch::tensor({(float)sigma_}, opt);
-                    s0_tensor_ = torch::tensor({(float)s0_}, opt);
-                    r_tensor_ = torch::tensor({(float)r_}, opt);
-                    parameters_ = {};
-                    param_names_ = {};
-                    break;
-                }
-            }
+        const DSO::ModelEvalMode mode() const override {
+            return mode_;
         }
 
     private:
@@ -133,6 +137,7 @@ class BlackScholesModel final : public StochasticModel {
         double r_;
         double sigma_;
         bool use_log_params_ = false;
+        ModelEvalMode mode_ = ModelEvalMode::UNINITIATLISED;
 
         torch::Tensor dt_;
         torch::Tensor sqrt_dt_;

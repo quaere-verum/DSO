@@ -16,7 +16,7 @@
 #include "products/european_option.hpp"
 #include "products/asian_option.hpp"
 
-#include "objectives/mc_price_objective.hpp"
+#include "objectives/mc_calibration_objective.hpp"
 #include "objectives/mc_hedge_objective.hpp"
 
 #include "trainers/optimiser.hpp"

@@ -35,10 +35,9 @@ class MCHedgeObjective final : public StochasticProgram {
             const int64_t T = simulated.size(1);
             TORCH_CHECK(B > 0 && T > 1, "MCHedgeObjective: simulated must have shape [B, T] with T>1");
 
-            torch::Tensor payoff = torch::empty({B}, simulated.options().dtype(torch::kFloat32));
-            product_.compute_payoff(simulated, payoff);
+            torch::Tensor payoff = product_.compute_payoff(simulated);
 
-            torch::Tensor value = torch::full({B}, (float)initial_cash_, simulated.options().dtype(torch::kFloat32));
+            torch::Tensor value = torch::full({B}, (float)initial_cash_, simulated.options());
             MarketView mv;
 
             for (size_t k = 0; k < control_intervals_.n_intervals(); ++k) {
@@ -54,6 +53,7 @@ class MCHedgeObjective final : public StochasticProgram {
 
                 torch::Tensor hedge = controller_.action(mv, batch, ctx);
                 auto diff = S1 - S0;
+                value = value + hedge * diff;
                 value.addcmul_(hedge, diff);
             }
             return value.sub_(payoff).square_().mean();

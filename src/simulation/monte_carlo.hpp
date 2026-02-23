@@ -138,6 +138,76 @@ class MonteCarloExecutor {
             return final;
         }
 
+        // template<class Result, class BatchFunc>
+        // requires MergeableResult<Result> && BatchComputes<BatchFunc, Result>
+        // Result run(size_t total_paths, BatchFunc&& f) {
+
+        //     TORCH_CHECK(total_paths > 0, "total_paths must be > 0");
+
+        //     const size_t B = config_.batch_size;
+        //     const size_t n_batches = (total_paths + B - 1) / B;
+        //     const bool collect_perf = config_.collect_perf;
+
+        //     Result final{};
+        //     DSO::PerfCounters counters{};
+
+        //     const int num_threads = at::get_num_threads();
+
+        //     // Preallocate per-thread storage
+        //     std::vector<Result> results(num_threads);
+        //     std::vector<DSO::EvalContext> contexts;
+        //     contexts.reserve(num_threads);
+
+        //     for (int t = 0; t < num_threads; ++t) {
+        //         contexts.emplace_back(base_rng_->clone());
+        //     }
+
+        //     std::vector<DSO::PerfCounters> perf_tls;
+        //     if (collect_perf) {
+        //         perf_tls.resize(num_threads);
+        //         for (int t = 0; t < num_threads; ++t) {
+        //             contexts[t].perf = &perf_tls[t];
+        //         }
+        //     }
+
+        //     at::parallel_for(
+        //         0,
+        //         static_cast<int64_t>(n_batches),
+        //         1,
+        //         [&](int64_t begin, int64_t end) {
+
+        //             const int tid = at::get_thread_num();
+        //             auto& ctx = contexts[tid];
+        //             auto& acc = results[tid];
+
+        //             for (int64_t b = begin; b < end; ++b) {
+        //                 const size_t first_path = b * B;
+        //                 const size_t batch_n =
+        //                     std::min(B, total_paths - first_path);
+
+        //                 Result tmp = std::invoke(f, b, first_path, batch_n, ctx);
+        //                 acc.merge(std::move(tmp));
+        //             }
+        //         }
+        //     );
+
+        //     bool first = true;
+        //     for (auto& r : results) {
+        //         if (first) { final = std::move(r); first = false; }
+        //         else { final.merge(std::move(r)); }
+        //     }
+
+        //     if (collect_perf) {
+        //         bool first_c = true;
+        //         for (auto& p : perf_tls) {
+        //             if (first_c) { counters = std::move(p); first_c = false; }
+        //             else { counters.merge(std::move(p)); }
+        //         }
+        //         DSO::print_perf(counters, total_paths);
+        //     }
+
+        //     return final;
+        // }
 
 
     private:

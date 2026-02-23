@@ -6,9 +6,9 @@
 #include "core/threading.hpp"
 
 namespace DSO {
-class MCPriceObjective final : public StochasticProgram {
+class MCCalibrationObjective final : public StochasticProgram {
     public:
-        MCPriceObjective(
+        MCCalibrationObjective(
             double target_price,
             size_t n_paths,
             const Product& product
@@ -24,11 +24,8 @@ class MCPriceObjective final : public StochasticProgram {
             const BatchSpec& /*batch*/,
             const EvalContext& /*ctx*/
         ) override {
-            torch::Tensor payoffs = torch::empty({simulated.size(0)}, simulated.options().dtype(torch::kFloat32));
-            product_.compute_payoff(simulated, payoffs);
-            torch::Tensor price = payoffs.mean(); // TODO discounting
-            torch::Tensor diff  = price - target_price_;
-            return diff * diff;
+            torch::Tensor payoffs = product_.compute_payoff(simulated); // TODO: discounting
+            return payoffs.sub(target_price_).mean().square();
         }
 
         void resample_paths(size_t n_paths) override {

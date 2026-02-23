@@ -17,12 +17,39 @@ struct ValueResult {
     std::vector<double> second_order_derivatives;
 };
 
-struct ValueAccumResult {
-    torch::Tensor value_sum = torch::tensor({0.0}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU));
+struct ValuationAccumResult {
+    double value_sum = 0.0;
+    std::vector<double> grad_sum;
+    std::vector<double> second_sum;
     size_t n_paths = 0;
 
-    void merge(ValueAccumResult other) {
-        value_sum = value_sum + other.value_sum;
+    void init(size_t n_params, size_t n_second) {
+        if (grad_sum.empty())
+            grad_sum.assign(n_params, 0.0);
+        if (second_sum.empty())
+            second_sum.assign(n_second, 0.0);
+    }
+
+    void merge(ValuationAccumResult other) {
+        if (!other.grad_sum.empty()) {
+            if (grad_sum.empty())
+                grad_sum = std::move(other.grad_sum);
+            else {
+                for (size_t i = 0; i < grad_sum.size(); ++i)
+                    grad_sum[i] += other.grad_sum[i];
+            }
+        }
+
+        if (!other.second_sum.empty()) {
+            if (second_sum.empty())
+                second_sum = std::move(other.second_sum);
+            else {
+                for (size_t i = 0; i < second_sum.size(); ++i)
+                    second_sum[i] += other.second_sum[i];
+            }
+        }
+
+        value_sum += other.value_sum;
         n_paths += other.n_paths;
     }
 };
@@ -43,125 +70,47 @@ class MonteCarloValuation {
         , model_(model)
         , executor_(config_.mc_config) {
             set_second_order_requests_();
+            TORCH_CHECK(model_.mode() == ModelEvalMode::VALUATION, "MonteCarloValuation: model must be set to valuation mode using set_mode(mode)");
         }
 
         ValueResult value(const Product& product) {
-            model_.set_mode(DSO::ModelEvalMode::VALUATION);
-            auto params = model_.parameters();
-            ValueAccumResult total_value =
-                executor_.run<ValueAccumResult>(
-                    config_.n_paths,
-                    [&](size_t b, size_t first_path,
-                        size_t batch_n, DSO::EvalContext& ctx
-                    ) { return batch_fn_(product, b, first_path, batch_n, 0, ctx); }
-                );
-
-            torch::Tensor value = total_value.value_sum / torch::tensor({(float)total_value.n_paths}, total_value.value_sum.options());
-
-            const bool need_second = !config_.second_order_derivatives.empty();
-
-            auto grads = torch::autograd::grad(
-                {value},
-                params,
-                {},
-                /*retain_graph=*/need_second,
-                /*create_graph=*/need_second
+            auto acc = executor_.run<ValuationAccumResult>(
+                config_.n_paths,
+                [&](size_t b, size_t first_path,
+                    size_t batch_n, DSO::EvalContext& ctx)
+                {
+                    return batch_fn_(
+                        product,
+                        b,
+                        first_path,
+                        batch_n,
+                        0,
+                        ctx
+                    );
+                }
             );
 
+            const double inv_n = 1.0 / static_cast<double>(acc.n_paths);
+
             ValueResult out;
-            out.value = value.item<double>();
-            out.gradient.reserve(grads.size());
-            for (auto& g : grads)
-                out.gradient.push_back(
-                    g.defined() ? g.item<double>() : 0.0
-                );
 
-            if (need_second) {
+            out.value = acc.value_sum * inv_n;
 
-                const size_t n_params = params.size();
-                std::vector<double> results(
-                    config_.second_order_derivatives.size(),
-                    0.0
-                );
+            out.gradient.resize(acc.grad_sum.size());
+            for (size_t i = 0; i < acc.grad_sum.size(); ++i)
+                out.gradient[i] = acc.grad_sum[i] * inv_n;
 
-                size_t group_counter = 0;
-                const size_t n_groups = grouped_.size();
-
-                for (auto& [i, vec] : grouped_) {
-                    const bool retain = (++group_counter < n_groups);
-                    if (vec.size() == 1) {
-
-                        size_t j = vec[0].first;
-                        size_t out_idx = vec[0].second;
-
-                        auto second = torch::autograd::grad(
-                            {grads[i]},
-                            {params[j]},
-                            {},
-                            /*retain_graph=*/retain,
-                            /*create_graph=*/false,
-                            /*allow_unused=*/true
-                        );
-
-                        results[out_idx] = second[0].defined() ? second[0].item<double>() : 0.0;
-                    }
-                    else {
-                        auto second = torch::autograd::grad(
-                            {grads[i]},
-                            params,
-                            {},
-                            /*retain_graph=*/retain,
-                            /*create_graph=*/false,
-                            /*allow_unused=*/true
-                        );
-
-                        for (auto& [j, out_idx] : vec) {
-                            results[out_idx] = second[j].defined() ? second[j].item<double>() : 0.0;
-                        }
-                    }
-                }
-
-                out.second_order_derivatives = std::move(results);
+            if (!acc.second_sum.empty()) {
+                out.second_order_derivatives.resize(acc.second_sum.size());
+                for (size_t i = 0; i < acc.second_sum.size(); ++i)
+                    out.second_order_derivatives[i] = acc.second_sum[i] * inv_n;
             }
 
             return out;
         }
 
     private:
-
-        ValueAccumResult batch_fn_(
-            const Product& product,
-            size_t b,
-            size_t first_path,
-            size_t batch_n,
-            uint64_t epoch_rng_offset,
-            DSO::EvalContext& eval_ctx
-        ) {
-            BatchSpec batch;
-            batch.batch_index = b;
-            batch.first_path = first_path;
-            batch.n_paths = batch_n;
-            batch.rng_offset = epoch_rng_offset;
-
-            eval_ctx.device = torch::kCPU;
-            eval_ctx.dtype = torch::kFloat32;
-            eval_ctx.training = true;
-
-            torch::Tensor simulated =
-                model_.simulate_batch(batch, eval_ctx);
-
-            auto payoffs = torch::empty({(int64_t)batch_n}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU));
-
-            product.compute_smooth_payoff(simulated, payoffs);
-
-            ValueAccumResult out;
-            out.value_sum = payoffs.sum();
-            out.n_paths = batch_n;
-            return out;
-        }
-
         void set_second_order_requests_() {
-
             auto names = model_.parameter_names();
             size_t n = names.size();
 
@@ -189,6 +138,102 @@ class MonteCarloValuation {
                 auto [i, j] = second_order_flat_[k];
                 grouped_[i].push_back({j, k});
             }
+        }
+
+        ValuationAccumResult batch_fn_(
+            const Product& product,
+            size_t b,
+            size_t first_path,
+            size_t batch_n,
+            uint64_t epoch_rng_offset,
+            DSO::EvalContext& eval_ctx
+        ) {
+            BatchSpec batch;
+            batch.batch_index = b;
+            batch.first_path = first_path;
+            batch.n_paths = batch_n;
+            batch.rng_offset = epoch_rng_offset;
+
+            eval_ctx.device = torch::kCPU;
+            eval_ctx.dtype = torch::kFloat32;
+            eval_ctx.training = true;
+
+            auto params = model_.parameters();
+            const bool need_second = !config_.second_order_derivatives.empty();
+
+            torch::Tensor simulated = model_.simulate_batch(batch, eval_ctx);
+            torch::Tensor payoffs = product.compute_smooth_payoff(simulated);
+            torch::Tensor value = payoffs.sum();
+
+            std::vector<torch::Tensor> grads = torch::autograd::grad(
+                    {value},
+                    params,
+                    {},
+                    need_second,
+                    need_second,
+                    /*allow_unused=*/true
+                );
+
+            ValuationAccumResult out;
+            out.init(params.size(), config_.second_order_derivatives.size());
+
+            {
+                torch::NoGradGuard no_grad;
+
+                out.value_sum = value.detach().item<double>();
+
+                for (size_t i = 0; i < grads.size(); ++i) {
+                    if (grads[i].defined())
+                        out.grad_sum[i] += grads[i].detach().item<double>();
+                }
+
+                if (need_second) {
+
+                    size_t group_counter = 0;
+                    const size_t n_groups = grouped_.size();
+
+                    for (auto& [i, vec] : grouped_) {
+
+                        const bool retain = (++group_counter < n_groups);
+
+                        if (vec.size() == 1) {
+                            size_t j = vec[0].first;
+                            size_t out_idx = vec[0].second;
+
+                            auto second = torch::autograd::grad(
+                                    {grads[i]},
+                                    {params[j]},
+                                    {},
+                                    retain,
+                                    false,
+                                    true
+                                );
+
+                            if (second[0].defined())
+                                out.second_sum[out_idx] += second[0].detach().item<double>();
+                        }
+                        else {
+                            auto second =
+                                torch::autograd::grad(
+                                    {grads[i]},
+                                    params,
+                                    {},
+                                    retain,
+                                    false,
+                                    true
+                                );
+
+                            for (auto& [j, out_idx] : vec) {
+                                if (second[j].defined())
+                                    out.second_sum[out_idx] +=
+                                        second[j].detach().item<double>();
+                            }
+                        }
+                    }
+                }
+                out.n_paths = batch_n;
+            }
+            return out;
         }
 
     private:

@@ -16,9 +16,8 @@
 namespace DSO {
 struct GradAccumResult {
     std::vector<torch::Tensor> grad_sum;
-    double loss_sum  = 0.0;
-    double price_sum = 0.0;
-    size_t n_paths   = 0;
+    double loss_sum = 0.0;
+    size_t n_paths = 0;
 
     GradAccumResult() = default;
     GradAccumResult(GradAccumResult&&) = default;
@@ -45,7 +44,6 @@ struct GradAccumResult {
             }
         }
         loss_sum += other.loss_sum;
-        price_sum += other.price_sum;
         n_paths += other.n_paths;
     }
 };
@@ -77,10 +75,14 @@ public:
         TORCH_CHECK(model_.factors() == product_.factors(), "MonteCarloGradientTrainer: model factors must match product factors");
         
         if (!controller_) {
-            model_.set_mode(DSO::ModelEvalMode::CALIBRATION);
+            TORCH_CHECK(model_.mode() == DSO::ModelEvalMode::CALIBRATION, "MonteCarloGradientTrainer: model mode is not set to CALIBRATION");
+            params_ = model_.parameters();
+            param_names_ = model_.parameter_names();
         } else {
-            model_.set_mode(DSO::ModelEvalMode::HEDGING);
+            TORCH_CHECK(model_.mode() == DSO::ModelEvalMode::HEDGING, "MonteCarloGradientTrainer: model mode is not set to HEDGING");
             controller_->set_training(true);
+            params_ = controller_->parameters();
+            param_names_ = controller_->parameter_names();
         }
     }
 
@@ -135,7 +137,6 @@ private:
         {
             std::optional<DSO::ScopedTimer> t;
             if (perf) t.emplace(*perf, DSO::Stage::Grad);
-            
             grads = torch::autograd::grad(
                 /*outputs=*/{loss},
                 /*inputs=*/params_,
@@ -160,7 +161,6 @@ private:
                     out.grad_sum[i].add_(g * (float)batch_n);
                 }
                 out.loss_sum = loss.detach().item<double>() * (double)batch_n;
-                out.price_sum = 0.0;
                 out.n_paths = batch_n;
             }
         }
@@ -168,22 +168,10 @@ private:
     }
 
     void apply_grads_(const GradAccumResult& acc) {
-        TORCH_CHECK(acc.grad_sum.size() == params_.size(), "apply_grads_: grad size mismatch");
-        TORCH_CHECK(acc.n_paths > 0, "apply_grads_: n_paths must be > 0");
-
         torch::NoGradGuard no_grad;
-
         for (size_t i = 0; i < params_.size(); ++i) {
-            torch::Tensor p = params_[i];
             torch::Tensor g = acc.grad_sum[i] / static_cast<double>(acc.n_paths);
-
-            // Conservative: keep grad tensor object stable when possible
-            if (p.grad().defined()) {
-                p.grad().detach_();
-                p.grad().copy_(g);
-            } else {
-                p.mutable_grad() = g.clone();
-            }
+            params_[i].mutable_grad() = g; 
         }
     }
 
