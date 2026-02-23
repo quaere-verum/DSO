@@ -54,7 +54,6 @@ class MCHedgeObjective final : public StochasticProgram {
                 torch::Tensor hedge = controller_.action(mv, batch, ctx);
                 auto diff = S1 - S0;
                 value = value + hedge * diff;
-                value.addcmul_(hedge, diff);
             }
             return value.sub_(payoff).square_().mean();
         }

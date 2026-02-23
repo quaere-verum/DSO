@@ -30,9 +30,9 @@ void valuation(
     model.init(gridspec);
 
     std::vector<std::tuple<std::string, std::string>> second_order_derivatives = {
-        {"s0", "s0"}, 
-        {"s0", "sigma"},
-        {"sigma", "sigma"}
+        // {"s0", "s0"}, 
+        // {"s0", "sigma"},
+        // {"sigma", "sigma"}
     };
     auto valuator = DSO::MonteCarloValuation(
         DSO::MonteCarloValuation::Config(mc_config, n_paths, second_order_derivatives),
