@@ -19,9 +19,8 @@ void valuation(
     double strike = 100.0;
     auto product = DSO::AsianCallOption(maturity, strike, 252);
     double s0 = 100.0;
-    double r = 0.0;
     double sigma = 0.20;
-    auto model = DSO::BlackScholesModel(s0, r, sigma, DSO::ModelEvalMode::VALUATION);
+    auto model = DSO::BlackScholesModel(s0, sigma, DSO::ModelEvalMode::VALUATION);
     DSO::SimulationGridSpec gridspec;
     gridspec.include_t0 = product.include_t0();
     for (auto t : product.time_grid()) {
@@ -30,9 +29,9 @@ void valuation(
     model.init(gridspec);
 
     std::vector<std::tuple<std::string, std::string>> second_order_derivatives = {
-        // {"s0", "s0"}, 
-        // {"s0", "sigma"},
-        // {"sigma", "sigma"}
+        {"s0", "s0"}, 
+        {"s0", "sigma"},
+        {"sigma", "sigma"}
     };
     auto valuator = DSO::MonteCarloValuation(
         DSO::MonteCarloValuation::Config(mc_config, n_paths, second_order_derivatives),
@@ -67,9 +66,8 @@ void hedging(
     double strike = 100.0;
     auto product = DSO::EuropeanCallOption(maturity, strike);
     double s0 = 100.0;
-    double r = 0.0;
     double sigma = 0.20;
-    auto model = DSO::BlackScholesModel(s0, r, sigma, DSO::ModelEvalMode::HEDGING);
+    auto model = DSO::BlackScholesModel(s0, sigma, DSO::ModelEvalMode::HEDGING);
     std::vector<double> control_times = DSO::make_time_grid(maturity, maturity / 12.0, true);
     DSO::ControlIntervals control_intervals;
     control_intervals.start_times = std::vector<double>(
@@ -137,9 +135,8 @@ void calibration(
     double strike = 100.0;
     auto product = DSO::EuropeanCallOption(maturity, strike);
     double s0 = 100.0;
-    double r = 0.0;
     double sigma = 0.30;
-    auto model = DSO::BlackScholesModel(s0, r, sigma, DSO::ModelEvalMode::CALIBRATION);
+    auto model = DSO::BlackScholesModel(s0, sigma, DSO::ModelEvalMode::CALIBRATION);
     auto objective = DSO::MCCalibrationObjective(
         7.97f, // Black-Scholes price for sigma = 0.20 and K=100
         n_paths,
