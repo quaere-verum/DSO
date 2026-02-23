@@ -24,28 +24,32 @@ struct ValuationAccumResult {
     size_t n_paths = 0;
 
     void init(size_t n_params, size_t n_second) {
-        if (grad_sum.empty())
+        if (grad_sum.empty()) {
             grad_sum.assign(n_params, 0.0);
-        if (second_sum.empty())
+        }
+        if (second_sum.empty()) {
             second_sum.assign(n_second, 0.0);
+        }
     }
 
     void merge(ValuationAccumResult other) {
         if (!other.grad_sum.empty()) {
-            if (grad_sum.empty())
+            if (grad_sum.empty()) {
                 grad_sum = std::move(other.grad_sum);
-            else {
-                for (size_t i = 0; i < grad_sum.size(); ++i)
+            } else {
+                for (size_t i = 0; i < grad_sum.size(); ++i) {
                     grad_sum[i] += other.grad_sum[i];
+                }
             }
         }
 
         if (!other.second_sum.empty()) {
-            if (second_sum.empty())
+            if (second_sum.empty()) {
                 second_sum = std::move(other.second_sum);
-            else {
-                for (size_t i = 0; i < second_sum.size(); ++i)
+            } else {
+                for (size_t i = 0; i < second_sum.size(); ++i) {
                     second_sum[i] += other.second_sum[i];
+                }
             }
         }
 
@@ -56,6 +60,7 @@ struct ValuationAccumResult {
 
 class MonteCarloValuation {
     public:
+
         struct Config {
             MonteCarloExecutor::Config mc_config;
             size_t n_paths;
@@ -69,16 +74,20 @@ class MonteCarloValuation {
         : config_(std::move(config))
         , model_(model)
         , executor_(config_.mc_config) {
-            set_second_order_requests_();
-            TORCH_CHECK(model_.mode() == ModelEvalMode::VALUATION, "MonteCarloValuation: model must be set to valuation mode using set_mode(mode)");
+            build_second_order_structure_();
+            TORCH_CHECK(model_.mode() == ModelEvalMode::VALUATION, "MonteCarloValuation: model must be in valuation mode");
         }
 
         ValueResult value(const Product& product) {
+
             auto acc = executor_.run<ValuationAccumResult>(
                 config_.n_paths,
-                [&](size_t b, size_t first_path,
-                    size_t batch_n, DSO::EvalContext& ctx)
-                {
+                [&](
+                    size_t b, 
+                    size_t first_path,
+                    size_t batch_n, 
+                    DSO::EvalContext& ctx
+                ) {
                     return batch_fn_(
                         product,
                         b,
@@ -102,24 +111,39 @@ class MonteCarloValuation {
 
             if (!acc.second_sum.empty()) {
                 out.second_order_derivatives.resize(acc.second_sum.size());
-                for (size_t i = 0; i < acc.second_sum.size(); ++i)
+                for (size_t i = 0; i < acc.second_sum.size(); ++i) {
                     out.second_order_derivatives[i] = acc.second_sum[i] * inv_n;
+                }
             }
 
             return out;
         }
 
     private:
-        void set_second_order_requests_() {
+        struct SecondOrderGroup {
+            size_t i;
+            std::vector<size_t> js;
+            std::vector<size_t> output_indices;
+        };
+
+        void build_second_order_structure_() {
+
+            second_groups_.clear();
+
+            if (config_.second_order_derivatives.empty())
+                return;
+
             auto names = model_.parameter_names();
-            size_t n = names.size();
+            const size_t n = names.size();
 
-            second_order_requests_.clear();
-            second_order_requests_.resize(n);
+            std::unordered_map<size_t, SecondOrderGroup> tmp;
 
-            for (auto& pair : config_.second_order_derivatives) {
-                const auto& name_i = std::get<0>(pair);
-                const auto& name_j = std::get<1>(pair);
+            size_t flat_index = 0;
+
+            for (auto& req : config_.second_order_derivatives) {
+
+                const auto& name_i = std::get<0>(req);
+                const auto& name_j = std::get<1>(req);
 
                 size_t i = n;
                 size_t j = n;
@@ -129,15 +153,19 @@ class MonteCarloValuation {
                     if (names[k] == name_j) j = k;
                 }
 
-                TORCH_CHECK(i < n && j < n, "MonteCarloValuation: invalid parameter name");
+                TORCH_CHECK(i < n && j < n,
+                            "Invalid second-order parameter name");
 
-                second_order_requests_[i].push_back(j);
-                second_order_flat_.push_back({i,j});
+                auto& group = tmp[i];
+                group.i = i;
+                group.js.push_back(j);
+                group.output_indices.push_back(flat_index);
+
+                ++flat_index;
             }
-            for (size_t k = 0; k < second_order_flat_.size(); ++k) {
-                auto [i, j] = second_order_flat_[k];
-                grouped_[i].push_back({j, k});
-            }
+
+            for (auto& kv : tmp)
+                second_groups_.push_back(std::move(kv.second));
         }
 
         ValuationAccumResult batch_fn_(
@@ -148,6 +176,7 @@ class MonteCarloValuation {
             uint64_t epoch_rng_offset,
             DSO::EvalContext& eval_ctx
         ) {
+
             BatchSpec batch;
             batch.batch_index = b;
             batch.first_path = first_path;
@@ -159,20 +188,20 @@ class MonteCarloValuation {
             eval_ctx.training = true;
 
             auto params = model_.parameters();
-            const bool need_second = !config_.second_order_derivatives.empty();
+            const bool need_second = !second_groups_.empty();
 
             torch::Tensor simulated = model_.simulate_batch(batch, eval_ctx);
             torch::Tensor payoffs = product.compute_smooth_payoff(simulated);
             torch::Tensor value = payoffs.sum();
 
-            std::vector<torch::Tensor> grads = torch::autograd::grad(
-                    {value},
-                    params,
-                    {},
-                    need_second,
-                    need_second,
-                    /*allow_unused=*/true
-                );
+            auto grads = torch::autograd::grad(
+                {value},
+                params,
+                {},
+                /*retain_graph=*/need_second,
+                /*create_graph=*/need_second,
+                /*allow_unused=*/true
+            );
 
             ValuationAccumResult out;
             out.init(params.size(), config_.second_order_derivatives.size());
@@ -183,63 +212,47 @@ class MonteCarloValuation {
                 out.value_sum = value.detach().item<double>();
 
                 for (size_t i = 0; i < grads.size(); ++i) {
-                    if (grads[i].defined())
-                        out.grad_sum[i] += grads[i].detach().item<double>();
+                    if (grads[i].defined()) out.grad_sum[i] += grads[i].detach().item<double>();
                 }
+            }
 
-                if (need_second) {
+            if (need_second) {
 
-                    size_t group_counter = 0;
-                    const size_t n_groups = grouped_.size();
+                const size_t n_groups = second_groups_.size();
+                size_t counter = 0;
 
-                    for (auto& [i, vec] : grouped_) {
+                for (auto& group : second_groups_) {
 
-                        const bool retain = (++group_counter < n_groups);
+                    const bool retain = (++counter < n_groups);
 
-                        if (vec.size() == 1) {
-                            size_t j = vec[0].first;
-                            size_t out_idx = vec[0].second;
+                    auto hess_row = torch::autograd::grad(
+                        {grads[group.i]},
+                        params,
+                        {},
+                        /*retain_graph=*/retain,
+                        /*create_graph=*/false,
+                        /*allow_unused=*/true
+                    );
 
-                            auto second = torch::autograd::grad(
-                                    {grads[i]},
-                                    {params[j]},
-                                    {},
-                                    retain,
-                                    false,
-                                    true
-                                );
+                    torch::NoGradGuard no_grad;
 
-                            if (second[0].defined())
-                                out.second_sum[out_idx] += second[0].detach().item<double>();
-                        }
-                        else {
-                            auto second =
-                                torch::autograd::grad(
-                                    {grads[i]},
-                                    params,
-                                    {},
-                                    retain,
-                                    false,
-                                    true
-                                );
+                    for (size_t k = 0; k < group.js.size(); ++k) {
 
-                            for (auto& [j, out_idx] : vec) {
-                                if (second[j].defined())
-                                    out.second_sum[out_idx] +=
-                                        second[j].detach().item<double>();
-                            }
-                        }
+                        size_t j = group.js[k];
+                        size_t out_idx = group.output_indices[k];
+
+                        if (hess_row[j].defined())
+                            out.second_sum[out_idx] += hess_row[j].detach().item<double>();
                     }
                 }
-                out.n_paths = batch_n;
             }
+
+            out.n_paths = batch_n;
             return out;
         }
 
     private:
-        std::vector<std::vector<size_t>> second_order_requests_;
-        std::vector<std::pair<size_t,size_t>> second_order_flat_;
-        std::unordered_map<size_t, std::vector<std::pair<size_t, size_t>>> grouped_;
+        std::vector<SecondOrderGroup> second_groups_;
 
         Config config_;
         StochasticModel& model_;
