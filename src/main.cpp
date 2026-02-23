@@ -17,7 +17,7 @@ void valuation(
 ) {
     double maturity = 1.0;
     double strike = 100.0;
-    auto product = DSO::EuropeanCallOption(maturity, strike);
+    auto product = DSO::AsianCallOption(maturity, strike, 252);
     double s0 = 100.0;
     double r = 0.0;
     double sigma = 0.20;
@@ -180,14 +180,6 @@ void calibration(
     }
 }
 
-void verify_env(const char* name) {
-    const char* value = std::getenv(name);
-    if (value) {
-        std::cout << name << " = " << value << "\n";
-    } else {
-        std::cout << name << " is NOT set\n";
-    }
-}
 
 int main() {
     const size_t cores = std::thread::hardware_concurrency();
@@ -197,7 +189,7 @@ int main() {
     torch::set_num_interop_threads(1);
 
     try {
-        constexpr size_t n_paths = 1ULL << 18;
+        constexpr size_t n_paths = 1ULL << 20;
         constexpr size_t batch_size = 1ULL << 13;
         auto mc_config = DSO::MonteCarloExecutor::Config(
             num_threads,

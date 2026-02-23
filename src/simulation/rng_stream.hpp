@@ -60,7 +60,7 @@ static const ZigguratTables g_ziggurat_tables;
 
 class RNGStream {
     public:
-        RNGStream(uint64_t seed, uint64_t stream_id) 
+        RNGStream(uint64_t seed, uint64_t stream_id = 0) 
         : engine_(seed, stream_id)
         , base_seed_(seed) {};
 
@@ -100,23 +100,6 @@ class RNGStream {
                     row_ptr[j] = normal_inline_();
                 }
             };
-
-            if (vr.antithetic) {
-                const size_t half = n_paths / 2;
-                for (size_t i = 0; i < half; ++i) {
-                    float* a = out + i * n_dim;
-                    float* b = out + (i + half) * n_dim;
-                    gen_row(i, a);
-                    for (size_t j = 0; j < n_dim; ++j) b[j] = -a[j];
-                }
-                if (n_paths % 2) {
-                    gen_row(n_paths - 1, out + (n_paths - 1) * n_dim);
-                }
-            } else {
-                for (size_t i = 0; i < n_paths; ++i) gen_row(i, out + i * n_dim);
-            }
-
-            if (vr.moment_match) moment_match_inplace_(out, N);
 
             if (mean != 0.0f || sigma != 1.0f) {
                 for (size_t k = 0; k < N; ++k) out[k] = mean + sigma * out[k];

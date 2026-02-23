@@ -9,7 +9,7 @@ class PCG32 {
             seed_rng(seed, seq);
         };
 
-        std::unique_ptr<PCG32> clone() const {return std::make_unique<PCG32>(*this);}
+        std::unique_ptr<PCG32> clone() const { return std::make_unique<PCG32>(*this); }
 
         void seed_rng(uint64_t seed, uint64_t seq = 1) {
             state_ = 0;

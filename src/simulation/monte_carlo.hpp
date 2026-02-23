@@ -71,7 +71,7 @@ class MonteCarloExecutor {
         )
         : config_(std::move(config))
         , arena_(config_.num_threads) {
-            base_rng_ = std::make_unique<RNGStream>(config_.seed, 0);
+            base_rng_ = std::make_unique<RNGStream>(config_.seed);
         };
 
         template<class Result, class BatchFunc>

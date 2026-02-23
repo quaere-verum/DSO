@@ -29,7 +29,7 @@ class AsianCallOption final : public Option {
             return torch::softplus(average_prices - strike_, softplus_beta_);
         };
 
-        const bool include_t0() const override { return true; }
+        const bool include_t0() const override { return false; }
         const double strike() const override { return strike_; }
         const double maturity() const override { return maturity_; }
     

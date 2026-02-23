@@ -89,7 +89,7 @@ class BlackScholesModel final : public StochasticModel {
             {
                 std::optional<DSO::ScopedTimer> rng_timer;
                 if (perf) rng_timer.emplace(DSO::ScopedTimer(*perf, DSO::Stage::Rng));
-                    
+
                 for (int64_t i = 0; i < B; ++i) {
                     const uint64_t path_idx = static_cast<uint64_t>(batch.first_path) + static_cast<uint64_t>(i);
                     ctx.rng->seed_path(path_idx + batch.rng_offset);
