@@ -25,13 +25,11 @@ public:
     )
         : feature_extractor_(std::move(feature_extractor)), config_(config) {
         TORCH_CHECK(feature_extractor_ != nullptr, "LinearHedgeController: feature extractor is null");
-        TORCH_CHECK(feature_extractor_->feature_dim() == 2, "LinearHedgeController: expected feature_dim()==2");
 
         auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
-
-        w_ = torch::tensor({1.0, 0.5}, opt).requires_grad_(true);
-        // w_ = torch::ones({2}, opt).add_(1).requires_grad_(true);
-        b_ = torch::zeros({1}, opt).add_(0.509).requires_grad_(true);
+        
+        w_ = torch::rand({feature_extractor_->feature_dim()}, opt).requires_grad_(true);
+        b_ = torch::zeros({1}, opt).requires_grad_(true);
 
         names_ = {"hedge_w", "hedge_b"};
     }
@@ -42,7 +40,6 @@ public:
         const EvalContext& ctx
     ) override {
         torch::Tensor x = feature_extractor_->features(mv, batch, ctx);
-        TORCH_CHECK(x.dim() == 2 && x.size(1) == 2, "LinearHedgeController: features must be [B,2]");
         torch::Tensor raw = torch::matmul(x, w_) + b_;
         torch::Tensor hedge = raw;
         if (config_.squash_sigmoid) {

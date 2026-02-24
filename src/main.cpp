@@ -45,15 +45,15 @@ void valuation(
     ).count();
     std::cout << "Valuation duration=" << duration << "ms\n";
     auto names = model.parameter_names();
+    std::cout << "Valuation results (assuming r=0):\n";
     std::cout << "value=" << value.value << "\n";
     for (size_t i = 0; i < names.size(); ++i) {
-        std::cout << names[i] << "=" << value.gradient[i] << "\n";
+        std::cout << "dV/d" << names[i] << "=" << value.gradient[i] << "\n";
     }
     for (size_t i = 0; i < second_order_derivatives.size(); ++i) {
-        std::cout 
-        << std::get<0>(second_order_derivatives[i])
-        << ", "
-        << std::get<1>(second_order_derivatives[i]) 
+        std::cout << "d^2V/"
+        << "d" << std::get<0>(second_order_derivatives[i])
+        << "d" << std::get<1>(second_order_derivatives[i]) 
         << "=" << value.second_order_derivatives[i] << "\n";
     }
 }
