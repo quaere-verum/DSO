@@ -11,64 +11,110 @@
 #include <thread>
 #include <cstdlib>
 
-void valuation(
+void benchmark_hedge_against_linear(
     size_t n_paths,
-    DSO::MonteCarloExecutor::Config mc_config
+    double product_price,
+    DSO::MonteCarloExecutor::Config mc_config,
+    std::shared_ptr<DSO::StochasticModelImpl> model,
+    const DSO::Option& product,
+    std::shared_ptr<DSO::ControllerImpl> trained_controller,
+    const std::vector<double>& control_times,
+    const DSO::ControlIntervals& control_intervals,
+    const DSO::SimulationGridSpec& gridspec,
+    DSO::MCHedgeObjective& objective
 ) {
-    double maturity = 1.0;
-    double strike = 100.0;
-    auto product = DSO::AsianCallOption(maturity, strike, 252);
-    double s0 = 100.0;
-    double sigma = 0.20;
-    auto model = DSO::BlackScholesModel(s0, sigma, DSO::ModelEvalMode::VALUATION);
-    DSO::SimulationGridSpec gridspec;
-    gridspec.include_t0 = product.include_t0();
-    for (auto t : product.time_grid()) {
-        gridspec.time_grid.push_back(t);
-    }
-    model.init(gridspec);
+    DSO::EvalContext ctx(std::move(std::make_unique<DSO::RNGStream>(0)));
+    ctx.device = torch::kCPU;
+    ctx.dtype = torch::kFloat32;
+    ctx.training = false;
 
-    std::vector<std::tuple<std::string, std::string>> second_order_derivatives = {
-        {"s0", "s0"}, 
-        {"s0", "sigma"},
-        {"sigma", "sigma"}
-    };
-    auto valuator = DSO::MonteCarloValuation(
-        DSO::MonteCarloValuation::Config(mc_config, n_paths, second_order_derivatives),
-        model
+    DSO::BatchSpec batch;
+    batch.batch_index = 0;
+    batch.first_path = 0;
+    batch.n_paths = n_paths;
+    batch.rng_offset = 0;
+
+    torch::Tensor simulated = model->simulate_batch(batch, ctx, nullptr);
+    torch::Tensor payoff = product.compute_payoff(simulated);
+
+    auto opt = torch::TensorOptions().dtype(ctx.dtype);
+    torch::Tensor A1 = torch::zeros({(int64_t)n_paths}, opt);
+    torch::Tensor A2 = torch::zeros({(int64_t)n_paths}, opt);
+    torch::Tensor A3 = torch::zeros({(int64_t)n_paths}, opt);
+
+    torch::Tensor premium_tensor = torch::full({(int64_t)n_paths}, product_price, opt);
+    auto control_indices = DSO::bind_to_grid(control_intervals, gridspec.time_grid);
+
+    for (size_t k = 0; k < control_intervals.n_intervals(); ++k) {
+        const int64_t t0_idx = control_indices.start_idx[k];
+        const int64_t t1_idx = control_indices.end_idx[k];
+
+        torch::Tensor S0k = simulated.select(1, t0_idx).to(ctx.dtype);
+        torch::Tensor S1k = simulated.select(1, t1_idx).to(ctx.dtype);
+        torch::Tensor dS = S1k - S0k;
+
+        torch::Tensor xk = torch::log(S0k / product.strike());
+        double tau_k = product.maturity() - control_times[k];
+
+        A1.add_(xk * dS);
+        A2.add_(tau_k * dS);
+        A3.add_(dS);
+    }
+
+    torch::Tensor X = torch::stack({A1, A2, A3}, 1);
+    torch::Tensor y = payoff.to(ctx.dtype) - premium_tensor;
+
+    // Solve linear regression: X * w = y
+    // Closed-form: w = (X^T X)^(-1) X^T y
+    torch::Tensor XtX = torch::matmul(X.t(), X);
+    torch::Tensor Xty = torch::matmul(X.t(), y.unsqueeze(1));
+
+    torch::Tensor w = torch::linalg_solve(XtX, Xty).squeeze();
+    double w1 = w[0].item<double>();
+    double w2 = w[1].item<double>();
+    double b  = w[2].item<double>();
+
+    std::cout << "Optimal linear hedge coefficients:\n";
+    std::cout << "w1 = " << w1 << "\n";
+    std::cout << "w2 = " << w2 << "\n";
+    std::cout << "b  = " << b << "\n";
+    auto loss_direct = (torch::matmul(X, w.unsqueeze(1)).squeeze() - y).pow(2).mean();
+    
+    auto feature_extractor = DSO::OptionFeatureExtractor(product);
+    auto regression_controller = DSO::LinearHedgeController(
+        feature_extractor.ptr()
     );
-    auto start = std::chrono::high_resolution_clock::now();
-    auto value = valuator.value(product);
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-        end - start
-    ).count();
-    std::cout << "Valuation duration=" << duration << "ms\n";
-    auto names = model.parameter_names();
-    std::cout << "Valuation results (assuming r=0):\n";
-    std::cout << "value=" << value.value << "\n";
-    for (size_t i = 0; i < names.size(); ++i) {
-        std::cout << "dV/d" << names[i] << "=" << value.gradient[i] << "\n";
+    for (auto& pair : regression_controller->named_parameters()) {
+        auto& name = pair.key();
+        auto& p = pair.value();
+        if (name == "b") {
+            p.data().copy_(torch::tensor({(float)b}, opt));
+        } else {
+            p.data().copy_(torch::tensor({(float)w1, (float)w2}, opt));
+        }
     }
-    for (size_t i = 0; i < second_order_derivatives.size(); ++i) {
-        std::cout << "d^2V/"
-        << "d" << std::get<0>(second_order_derivatives[i])
-        << "d" << std::get<1>(second_order_derivatives[i]) 
-        << "=" << value.second_order_derivatives[i] << "\n";
-    }
+    objective.set_controller(regression_controller.ptr());
+    auto loss = objective.loss(simulated, batch, ctx);
+    std::cout << "Linear Regression Controller MSE = " << loss.item<double>() << "\n";
+
+    objective.set_controller(trained_controller);
+    loss = objective.loss(simulated, batch, ctx);
+    std::cout << "Trained Controller MSE = " << loss.item<double>() << "\n";
 }
 
 void hedging(
     size_t n_paths,
-    DSO::MonteCarloExecutor::Config mc_config
+    double product_price,
+    DSO::MonteCarloExecutor::Config mc_config,
+    std::shared_ptr<DSO::StochasticModelImpl> model,
+    const DSO::Option& product
 ) {
-    double maturity = 1.0;
-    double strike = 100.0;
-    auto product = DSO::EuropeanCallOption(maturity, strike);
-    double s0 = 100.0;
-    double sigma = 0.20;
-    auto model = DSO::BlackScholesModel(s0, sigma, DSO::ModelEvalMode::HEDGING);
-    std::vector<double> control_times = DSO::make_time_grid(maturity, maturity / 12.0, true);
+    model->eval();
+    for (auto& param : model->parameters()) {
+        param.requires_grad_(false);
+    }
+    const double maturity = product.maturity();
+    std::vector<double> control_times = DSO::make_time_grid(maturity, maturity / 12.0, /*include_maturity*/true);
     DSO::ControlIntervals control_intervals;
     control_intervals.start_times = std::vector<double>(
         control_times.begin(),
@@ -82,21 +128,24 @@ void hedging(
     DSO::SimulationGridSpec gridspec;
     gridspec.include_t0 = product.include_t0() || control_times.front() < 1e-12;
     gridspec.time_grid = master_time_grid;
-    auto feature_extractor = std::make_unique<DSO::OptionFeatureExtractor>(product);
+    auto feature_extractor = DSO::OptionFeatureExtractor(product);
     auto controller = DSO::LinearHedgeController(
-        std::move(feature_extractor),
-        DSO::LinearHedgeController::Config(false)
+        feature_extractor.ptr()
     );
+    for (auto& param : controller->parameters()) {
+        param.requires_grad_(true);
+    }
     auto objective = DSO::MCHedgeObjective(
         n_paths,
-        7.97, // Black-Scholes option premium
+        product_price,
         product, 
-        controller,
+        controller.ptr(),
         control_intervals
     );
-    model.init(gridspec);
+    model->init(gridspec);
     objective.bind(gridspec);
-    auto optim = DSO::Adam(torch::optim::Adam(controller.parameters(), torch::optim::AdamOptions(5e-2)));
+    double lr = 1e-1;
+    auto optim = DSO::Adam(torch::optim::Adam(controller->parameters(), torch::optim::AdamOptions(lr)));
     auto trainer = DSO::MonteCarloGradientTrainer(
         DSO::MonteCarloGradientTrainer::Config(
             mc_config,
@@ -106,49 +155,67 @@ void hedging(
         product,
         objective,
         optim,
-        &controller
+        controller.ptr()
     );
     std::cout << "STARTED HEDGING TRAINING\n";
     for (int iter = 0; iter < 100; ++iter) {
         torch::Tensor loss = optim.step(trainer);
-        
-        if (iter % 10 == 0) {
-            std::cout << "iter=" << iter
+        lr *= 0.98;
+        optim.set_lr(lr);
+        if ((iter + 1) % 10 == 0) {
+            std::cout << "iter=" << iter + 1
                     << " loss=" << loss.item<float>() << "\n";
         }
     }
-
     std::cout << "FINISHED HEDGING TRAINING\n";
-
-    const auto controller_parameters = controller.parameters();
-    const auto controller_parameter_names = controller.parameter_names();
-    for (int idx = 0; idx < controller_parameters.size(); idx++) {
-        std:: cout << controller_parameter_names[idx] << "=\n" << controller_parameters[idx] << "\n";
+    for (const auto& named_param : controller->named_parameters()) {
+        const auto& name = named_param.key();
+        const auto& value = named_param.value();
+        std::cout << name << "=\n" << value << "\n";
     }
+    benchmark_hedge_against_linear(
+        n_paths,
+        product_price,
+        mc_config,
+        model,
+        product,
+        controller.ptr(),
+        control_times,
+        control_intervals,
+        gridspec,
+        objective
+    );
+    return;
 }
 
 void calibration(
     size_t n_paths,
-    DSO::MonteCarloExecutor::Config mc_config
+    double product_price,
+    const DSO::MonteCarloExecutor::Config& mc_config,
+    std::shared_ptr<DSO::StochasticModelImpl> model,
+    const DSO::Product& product
 ) {
-    double maturity = 1.0;
-    double strike = 100.0;
-    auto product = DSO::EuropeanCallOption(maturity, strike);
-    double s0 = 100.0;
-    double sigma = 0.30;
-    auto model = DSO::BlackScholesModel(s0, sigma, DSO::ModelEvalMode::CALIBRATION);
+    for (auto& named_param : model->named_parameters()) {
+        const auto& name = named_param.key();
+        auto& param = named_param.value();
+        if (name == "log_sigma") {
+            param.requires_grad_(true);   // calibrate sigma
+        } else {
+            param.requires_grad_(false);  // freeze everything else
+        }
+    }
     auto objective = DSO::MCCalibrationObjective(
-        7.97f, // Black-Scholes price for sigma = 0.20 and K=100
+        product_price,
         n_paths,
         product
     );
     DSO::SimulationGridSpec gridspec;
     gridspec.time_grid = product.time_grid();
     gridspec.include_t0 = product.include_t0();
-    model.init(gridspec);
+    model->init(gridspec);
     objective.bind(gridspec);
-    auto optim = DSO::Adam(torch::optim::Adam(model.parameters(), torch::optim::AdamOptions(1e-2)));
-    // auto optim = DSO::LBFGS(torch::optim::LBFGS(model.parameters(), torch::optim::LBFGSOptions().line_search_fn("strong_wolfe")));
+    double lr = 5e-2;
+    auto optim = DSO::Adam(torch::optim::Adam(model->parameters(), torch::optim::AdamOptions(lr)));
     auto trainer = DSO::MonteCarloGradientTrainer(
         DSO::MonteCarloGradientTrainer::Config(
             mc_config,
@@ -160,26 +227,31 @@ void calibration(
         optim
     );
     std::cout << "STARTED CALIBRATION\n";
-    for (int iter = 0; iter < 100; ++iter) {
+    for (int iter = 0; iter < 250; ++iter) {
         torch::Tensor loss = optim.step(trainer);
+        lr *= 0.975;
+        optim.set_lr(lr);
         
-        if (iter % 10 == 0) {
-            std::cout << "iter=" << iter
+        if ((iter + 1) % 10 == 0) {
+            std::cout << "iter=" << iter + 1
                     << " loss=" << loss.item<float>() << "\n";
         }
     }
 
     std::cout << "FINISHED CALIBRATION\n";
-    const auto model_parameters = model.parameters();
-    const auto model_parameter_names = model.parameter_names();
-
-    for (int idx = 0; idx < model_parameters.size(); idx ++) {
-        std::cout << model_parameter_names[idx] << "=\n" << model_parameters[idx] << "\n";
+    for (const auto& named_param : model->named_parameters()) {
+        const auto& name = named_param.key();
+        const auto& value = named_param.value();
+        std::cout << name << "=\n" << value.detach() << "\n";
+        if (name == "log_sigma") {
+            std::cout << "sigma=\n" << value.detach().exp() << "\n";
+        }
     }
 }
 
 
 int main() {
+    torch::manual_seed(123);
     const size_t cores = std::thread::hardware_concurrency();
     const size_t num_threads = cores;
     std::cout << "cores=" << cores << "\n";
@@ -188,17 +260,23 @@ int main() {
 
     try {
         constexpr size_t n_paths = 1ULL << 20;
-        constexpr size_t batch_size = 1ULL << 13;
+        constexpr size_t batch_size = 1ULL << 14;
         auto mc_config = DSO::MonteCarloExecutor::Config(
             num_threads,
             batch_size,
             /*seed=*/42,
             /*collect_perf*/false
         );
+        double maturity = 1.0;
+        double strike = 100.0;
+        auto product = DSO::EuropeanCallOption(maturity, strike);
+        double s0 = 100.0;
+        double sigma_initial = 0.30;
+        double product_price = 7.97; // implied vol = 20%
+        auto model = DSO::BlackScholesModel(s0, sigma_initial, /*use_log_sigma*/true);
         
-        valuation(n_paths, mc_config);
-        calibration(n_paths, mc_config);
-        hedging(n_paths, mc_config);
+        calibration(n_paths, product_price, mc_config, model.ptr(), product);
+        hedging(n_paths, product_price, mc_config, model.ptr(), product);
 
         return 0;
     } catch (const c10::Error& e) {

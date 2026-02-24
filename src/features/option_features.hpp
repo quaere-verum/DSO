@@ -3,9 +3,9 @@
 #include "products/product.hpp"
 
 namespace DSO {
-class OptionFeatureExtractor final : public FeatureExtractor {
+class OptionFeatureExtractorImpl final : public FeatureExtractorImpl {
     public:
-        OptionFeatureExtractor(const Option& option) 
+        OptionFeatureExtractorImpl(const Option& option) 
         : option_(option) {
             auto opts = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
             strike_inv_ = torch::tensor(1.0 / option_.strike(), opts);
@@ -22,7 +22,7 @@ class OptionFeatureExtractor final : public FeatureExtractor {
 
             auto col0 = out.select(1, 0);
             torch::log_out(col0, S * strike_inv_);
-            out.select(1, 1).copy_(tau_);
+            out.select(1, 1).copy_(tau_ - mv.t);
 
             return out;
         }
@@ -33,4 +33,5 @@ class OptionFeatureExtractor final : public FeatureExtractor {
         torch::Tensor strike_inv_;
         torch::Tensor tau_;
 };
+TORCH_MODULE(OptionFeatureExtractor);
 }

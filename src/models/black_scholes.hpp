@@ -14,37 +14,18 @@
 
 namespace DSO {
 
-class BlackScholesModel final : public StochasticModel {
+class BlackScholesModelImpl final : public StochasticModelImpl {
     public:
-        BlackScholesModel(double s0, double sigma, ModelEvalMode mode)
-        : s0_(s0)
-        , sigma_(sigma)
-        , mode_(mode) {
-            auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
-            switch (mode) {
-                case ModelEvalMode::CALIBRATION: {
-                    log_sigma_tensor_ = torch::tensor({(float)std::log(sigma_)}, opt).requires_grad_(true);
-                    s0_tensor_ = torch::tensor({(float)s0_}, opt);
-                    parameters_ = {log_sigma_tensor_};
-                    param_names_ = {"log_sigma"};
-                    use_log_params_ = true;
-                    break;
-                }
-                case ModelEvalMode::VALUATION: {
-                    sigma_tensor_ = torch::tensor({(float)sigma_}, opt).requires_grad_(true);
-                    s0_tensor_ = torch::tensor({(float)s0_}, opt).requires_grad_(true);
-                    parameters_ = {sigma_tensor_, s0_tensor_};
-                    param_names_ = {"sigma", "s0"};
-                    break;
-                }
-                case ModelEvalMode::HEDGING: {
-                    sigma_tensor_ = torch::tensor({(float)sigma_}, opt);
-                    s0_tensor_ = torch::tensor({(float)s0_}, opt);
-                    parameters_ = {};
-                    param_names_ = {};
-                    break;
-                }
+        BlackScholesModelImpl(double s0, double sigma, bool use_log_sigma)
+        : use_log_sigma_(use_log_sigma) {
+            auto opt = torch::TensorOptions().dtype(torch::kFloat32);
+            s0_tensor_ = register_parameter("s0", torch::tensor({static_cast<float>(s0)}, opt));
+            if (use_log_sigma_) {
+                log_sigma_tensor_ = register_parameter("log_sigma", torch::tensor({static_cast<float>(std::log(sigma))}, opt));
+            } else {
+                sigma_tensor_ = register_parameter("sigma", torch::tensor({static_cast<float>(sigma)}, opt));
             }
+            
         }
 
         void init(const SimulationGridSpec& spec) override {
@@ -66,11 +47,10 @@ class BlackScholesModel final : public StochasticModel {
         torch::Tensor simulate_batch(
             const BatchSpec& batch,
             const EvalContext& ctx,
-            Controller*
+            std::shared_ptr<ControllerImpl>
         ) override {
             TORCH_CHECK(batch.n_paths > 0, "batch.n_paths must be > 0");
             TORCH_CHECK(init_spec_ != nullptr, "call bind(gridspec) before simulate_batch");
-            TORCH_CHECK(mode_ != ModelEvalMode::UNINITIATLISED, "call set_mode(mode) before simulate_batch")
             TORCH_CHECK(ctx.rng.get() != nullptr, "ThreadContext.rng must be set");
 
             const auto device = torch::kCPU;
@@ -111,27 +91,13 @@ class BlackScholesModel final : public StochasticModel {
             return S_future;
         }
 
-
-        std::vector<torch::Tensor>& parameters() override {
-            return parameters_;
-        }
-
-        const std::vector<std::string>& parameter_names() const override {
-            return param_names_;
-        }
-
         const std::vector<DSO::FactorType>& factors() const override {return factors_;}
 
-        const DSO::ModelEvalMode mode() const override { return mode_; }
+    private:
+        torch::Tensor get_sigma_() const { return use_log_sigma_ ? torch::exp(log_sigma_tensor_) : sigma_tensor_; }
 
     private:
-        torch::Tensor get_sigma_() const {return use_log_params_ ? torch::exp(log_sigma_tensor_) : sigma_tensor_;}
-
-    private:
-        double s0_;
-        double sigma_;
-        bool use_log_params_ = false;
-        ModelEvalMode mode_ = ModelEvalMode::UNINITIATLISED;
+        bool use_log_sigma_;
 
         torch::Tensor dt_;
         torch::Tensor sqrt_dt_;
@@ -139,12 +105,10 @@ class BlackScholesModel final : public StochasticModel {
 
         // parameters
         torch::Tensor s0_tensor_;
-        torch::Tensor sigma_tensor_;
         torch::Tensor log_sigma_tensor_;
-        std::vector<torch::Tensor> parameters_;
-        std::vector<std::string> param_names_;
+        torch::Tensor sigma_tensor_;
 
         std::vector<DSO::FactorType> factors_ = {DSO::FactorType::Spot};
 };
-
+TORCH_MODULE(BlackScholesModel);
 } // namespace DSO

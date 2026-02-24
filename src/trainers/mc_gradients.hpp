@@ -4,6 +4,7 @@
 #include <string>
 #include <cstdint>
 #include <utility>
+#include <memory>
 
 #include "simulation/monte_carlo.hpp"
 #include "core/threading.hpp"
@@ -57,11 +58,11 @@ public:
 
     MonteCarloGradientTrainer(
         Config config,
-        StochasticModel& model,
+        std::shared_ptr<StochasticModelImpl> model,
         const Product& product,
         StochasticProgram& objective,
         Optimiser& optimiser,
-        Controller* controller = nullptr
+        std::shared_ptr<ControllerImpl> controller = nullptr
     )
         : config_(std::move(config))
         , model_(model)
@@ -72,17 +73,21 @@ public:
         , mc_config_(config_.mc_config) {
 
         TORCH_CHECK(config_.n_paths > 0, "MonteCarloGradientTrainer: n_paths must be > 0");
-        TORCH_CHECK(model_.factors() == product_.factors(), "MonteCarloGradientTrainer: model factors must match product factors");
+        TORCH_CHECK(model_->factors() == product_.factors(), "MonteCarloGradientTrainer: model factors must match product factors");
         
-        if (!controller_) {
-            TORCH_CHECK(model_.mode() == DSO::ModelEvalMode::CALIBRATION, "MonteCarloGradientTrainer: model mode is not set to CALIBRATION");
-            params_ = model_.parameters();
-            param_names_ = model_.parameter_names();
+        if (controller_) {
+            TORCH_CHECK(!model->is_training(), "MonteCarloGradientTrainer: model must not be in training mode for HEDGING");
+            TORCH_CHECK(controller_->is_training(), "MonteCarloGradientTrainer: controller must be in training mode for HEDGING");
         } else {
-            TORCH_CHECK(model_.mode() == DSO::ModelEvalMode::HEDGING, "MonteCarloGradientTrainer: model mode is not set to HEDGING");
-            controller_->set_training(true);
-            params_ = controller_->parameters();
-            param_names_ = controller_->parameter_names();
+            TORCH_CHECK(model_->is_training(), "MonteCarloGradientTrainer: model must be in training mode for CALIBRATION");
+        }
+        for (auto& p : model_->parameters()) {
+            if (p.requires_grad()) trainable_params_.push_back(p);
+        }
+        if (controller_) {
+            for (auto& p : controller_->parameters()) {
+                if (p.requires_grad()) trainable_params_.push_back(p);
+            }
         }
     }
 
@@ -100,9 +105,6 @@ public:
         auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
         return torch::tensor({static_cast<float>(mean_loss)}, opt);
     }
-
-    const std::vector<std::string>& parameter_names() const { return param_names_; }
-    std::vector<torch::Tensor> parameters() const { return params_; }
 
 private:
     GradAccumResult batch_fn_(
@@ -124,7 +126,7 @@ private:
 
         auto* perf = eval_ctx.perf;
 
-        torch::Tensor simulated = model_.simulate_batch(batch, eval_ctx, controller_);
+        torch::Tensor simulated = model_->simulate_batch(batch, eval_ctx, controller_);
         
         torch::Tensor loss;
         {
@@ -139,7 +141,7 @@ private:
             if (perf) t.emplace(*perf, DSO::Stage::Grad);
             grads = torch::autograd::grad(
                 /*outputs=*/{loss},
-                /*inputs=*/params_,
+                /*inputs=*/trainable_params_,
                 /*grad_outputs=*/{},
                 /*retain_graph=*/false,
                 /*create_graph=*/false,
@@ -151,7 +153,7 @@ private:
         {
             std::optional<DSO::ScopedTimer> t;
             if (perf) t.emplace(*perf, DSO::Stage::Accum);
-            out.init_like(params_);
+            out.init_like(trainable_params_);
             {
                 torch::NoGradGuard no_grad;
 
@@ -169,23 +171,21 @@ private:
 
     void apply_grads_(const GradAccumResult& acc) {
         torch::NoGradGuard no_grad;
-        for (size_t i = 0; i < params_.size(); ++i) {
+        for (size_t i = 0; i < trainable_params_.size(); ++i) {
             torch::Tensor g = acc.grad_sum[i] / static_cast<double>(acc.n_paths);
-            params_[i].mutable_grad() = g; 
+            trainable_params_[i].mutable_grad() = g; 
         }
     }
 
 private:
     Config config_;
-    StochasticModel& model_;
+    std::shared_ptr<StochasticModelImpl> model_;
     const Product& product_;
-    Controller* controller_;
+    std::shared_ptr<ControllerImpl> controller_;
     StochasticProgram& objective_;
     Optimiser& optimiser_;
     MonteCarloExecutor mc_config_;
-
-    std::vector<torch::Tensor> params_;
-    std::vector<std::string> param_names_;
+    std::vector<torch::Tensor> trainable_params_;
 };
 
 } // namespace DSO

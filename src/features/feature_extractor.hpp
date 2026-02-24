@@ -11,9 +11,9 @@ struct MarketView {
     double t_next;
 };
 
-class FeatureExtractor {
+class FeatureExtractorImpl : public torch::nn::Module {
     public:
-        virtual ~FeatureExtractor() = default;
+        virtual ~FeatureExtractorImpl() = default;
 
         virtual torch::Tensor features(
             const MarketView& mv,

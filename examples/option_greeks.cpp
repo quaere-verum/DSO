@@ -1,15 +1,7 @@
-#include <torch/torch.h>
+#include "dso.hpp"
 #include <vector>
-#include <algorithm>
 #include <string>
-#include <tuple>
-#include <unordered_map>
-#include "simulation/monte_carlo.hpp"
-#include "models/stochastic_model.hpp"
-#include "control/controller.hpp"
-#include "core/stochastic_program.hpp"
-
-namespace DSO {
+#include <torch/torch.h>
 
 struct ValueResult {
     double value;
@@ -62,23 +54,22 @@ class MonteCarloValuation {
     public:
 
         struct Config {
-            MonteCarloExecutor::Config mc_config;
+            DSO::MonteCarloExecutor::Config mc_config;
             size_t n_paths;
             std::vector<std::tuple<std::string, std::string>> second_order_derivatives;
         };
 
         MonteCarloValuation(
             Config config,
-            StochasticModel& model
+            std::shared_ptr<DSO::StochasticModelImpl> model
         )
         : config_(std::move(config))
         , model_(model)
         , executor_(config_.mc_config) {
             build_second_order_structure_();
-            TORCH_CHECK(model_.mode() == ModelEvalMode::VALUATION, "MonteCarloValuation: model must be in valuation mode");
         }
 
-        ValueResult value(const Product& product) {
+        ValueResult value(const DSO::Product& product) {
 
             auto acc = executor_.run<ValuationAccumResult>(
                 config_.n_paths,
@@ -129,18 +120,19 @@ class MonteCarloValuation {
         void build_second_order_structure_() {
 
             second_groups_.clear();
+            if (config_.second_order_derivatives.empty()) return;
 
-            if (config_.second_order_derivatives.empty())
-                return;
+            std::vector<std::string> names;
+            for (const auto& p : model_->named_parameters()) {
+                names.push_back(p.key());
+            }
 
-            auto names = model_.parameter_names();
             const size_t n = names.size();
-
             std::unordered_map<size_t, SecondOrderGroup> tmp;
 
             size_t flat_index = 0;
 
-            for (auto& req : config_.second_order_derivatives) {
+            for (const auto& req : config_.second_order_derivatives) {
 
                 const auto& name_i = std::get<0>(req);
                 const auto& name_j = std::get<1>(req);
@@ -153,8 +145,7 @@ class MonteCarloValuation {
                     if (names[k] == name_j) j = k;
                 }
 
-                TORCH_CHECK(i < n && j < n,
-                            "Invalid second-order parameter name");
+                TORCH_CHECK(i < n && j < n, "Invalid second-order parameter name: ", name_i, ", ", name_j);
 
                 auto& group = tmp[i];
                 group.i = i;
@@ -169,7 +160,7 @@ class MonteCarloValuation {
         }
 
         ValuationAccumResult batch_fn_(
-            const Product& product,
+            const DSO::Product& product,
             size_t b,
             size_t first_path,
             size_t batch_n,
@@ -177,7 +168,7 @@ class MonteCarloValuation {
             DSO::EvalContext& eval_ctx
         ) {
 
-            BatchSpec batch;
+            DSO::BatchSpec batch;
             batch.batch_index = b;
             batch.first_path = first_path;
             batch.n_paths = batch_n;
@@ -187,10 +178,10 @@ class MonteCarloValuation {
             eval_ctx.dtype = torch::kFloat32;
             eval_ctx.training = true;
 
-            auto params = model_.parameters();
+            auto params = model_->parameters();
             const bool need_second = !second_groups_.empty();
 
-            torch::Tensor simulated = model_.simulate_batch(batch, eval_ctx);
+            torch::Tensor simulated = model_->simulate_batch(batch, eval_ctx);
             torch::Tensor payoffs = product.compute_smooth_payoff(simulated);
             torch::Tensor value = payoffs.sum();
 
@@ -255,8 +246,68 @@ class MonteCarloValuation {
         std::vector<SecondOrderGroup> second_groups_;
 
         Config config_;
-        StochasticModel& model_;
-        MonteCarloExecutor executor_;
+        std::shared_ptr<DSO::StochasticModelImpl> model_;
+        DSO::MonteCarloExecutor executor_;
 };
 
-} // namespace DSO
+int main() {
+    const size_t cores = std::thread::hardware_concurrency();
+    const size_t num_threads = cores;
+    std::cout << "cores=" << cores << "\n";
+    torch::set_num_threads(1);
+    torch::set_num_interop_threads(1);
+    constexpr size_t n_paths = 1ULL << 20;
+    constexpr size_t batch_size = 1ULL << 13;
+    auto mc_config = DSO::MonteCarloExecutor::Config(
+        num_threads,
+        batch_size,
+        /*seed=*/42,
+        /*collect_perf*/false
+    );
+    double maturity = 1.0;
+    double strike = 100.0;
+    // auto product = DSO::AsianCallOption(maturity, strike, 252);
+    auto product = DSO::EuropeanCallOption(maturity, strike);
+    double s0 = 100.0;
+    double sigma = 0.20;
+    auto model = DSO::BlackScholesModel(s0, sigma, /*use_log_sigma*/false);
+    DSO::SimulationGridSpec gridspec;
+    gridspec.include_t0 = product.include_t0();
+    for (auto t : product.time_grid()) {
+        gridspec.time_grid.push_back(t);
+    }
+    model->init(gridspec);
+
+    std::vector<std::tuple<std::string, std::string>> second_order_derivatives = {
+        {"s0", "s0"}, 
+        {"s0", "sigma"},
+        {"sigma", "sigma"}
+    };
+    auto valuator = MonteCarloValuation(
+        MonteCarloValuation::Config(mc_config, n_paths, second_order_derivatives),
+        model.ptr()
+    );
+    auto start = std::chrono::high_resolution_clock::now();
+    auto value = valuator.value(product);
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        end - start
+    ).count();
+    std::cout << "Valuation duration=" << duration << "ms\n";
+    std::cout << "Valuation results (ignoring risk free rate r=0):\n";
+    std::cout << "value=" << value.value << "\n";
+
+    size_t i = 0;
+    for (const auto& named_param : model->named_parameters()) {
+        const auto& name = named_param.key();
+        std::cout << "dV/d" << name << "=" << value.gradient[i] << "\n";
+        ++i;
+    }
+
+    for (size_t j = 0; j < second_order_derivatives.size(); ++j) {
+        std::cout << "d^2V/"
+                << "d" << std::get<0>(second_order_derivatives[j])
+                << "d" << std::get<1>(second_order_derivatives[j])
+                << "=" << value.second_order_derivatives[j] << "\n";
+    }
+}

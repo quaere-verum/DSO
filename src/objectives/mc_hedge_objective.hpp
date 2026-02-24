@@ -1,5 +1,6 @@
 #pragma once
 #include <torch/torch.h>
+#include <memory>
 #include "core/stochastic_program.hpp"
 #include "products/product.hpp"
 #include "control/controller.hpp"
@@ -13,7 +14,7 @@ class MCHedgeObjective final : public StochasticProgram {
             size_t n_paths,
             double initial_cash,
             const Product& product,
-            Controller& controller,
+            std::shared_ptr<ControllerImpl> controller,
             const ControlIntervals& control_intervals
         )
         : n_paths_(n_paths)
@@ -37,7 +38,7 @@ class MCHedgeObjective final : public StochasticProgram {
 
             torch::Tensor payoff = product_.compute_payoff(simulated);
 
-            torch::Tensor value = torch::full({B}, (float)initial_cash_, simulated.options());
+            torch::Tensor value = torch::full({B}, initial_cash_, simulated.options());
             MarketView mv;
 
             for (size_t k = 0; k < control_intervals_.n_intervals(); ++k) {
@@ -51,11 +52,12 @@ class MCHedgeObjective final : public StochasticProgram {
                 mv.t_next = control_intervals_.end_times[k];
                 mv.t_index = k;
 
-                torch::Tensor hedge = controller_.action(mv, batch, ctx);
+                torch::Tensor hedge = controller_->forward(mv, batch, ctx).squeeze(-1);
                 auto diff = S1 - S0;
                 value = value + hedge * diff;
             }
-            return value.sub_(payoff).square_().mean();
+            auto pnl = value - payoff;
+            return pnl.square().mean();
         }
 
         void resample_paths(size_t n_paths) override {
@@ -71,12 +73,13 @@ class MCHedgeObjective final : public StochasticProgram {
             TORCH_CHECK(control_intervals_.start_times.back() < T - TIME_EPS, "Last control start must be strictly before maturity");
             control_indices_ = bind_to_grid(control_intervals_, spec.time_grid);
         }
+        void set_controller(std::shared_ptr<DSO::ControllerImpl> controller) { controller_ = controller; }
 
     private:
         size_t n_paths_;
         double initial_cash_;
         const Product& product_;
-        Controller& controller_;
+        std::shared_ptr<ControllerImpl> controller_;
         const ControlIntervals& control_intervals_;
         BoundControlIntervals control_indices_;
         bool bound_ = false;

@@ -7,17 +7,13 @@
 
 namespace DSO {
 
-class Controller {
+class ControllerImpl : public torch::nn::Module {
 public:
-    virtual ~Controller() = default;
-    virtual torch::Tensor action(
+    virtual ~ControllerImpl() = default;
+    virtual torch::Tensor forward(
         const MarketView& mv,
         const BatchSpec& batch,
         const EvalContext& ctx
     ) = 0;
-    virtual std::vector<torch::Tensor> parameters() = 0;
-    virtual const std::vector<std::string>& parameter_names() const = 0;
-    virtual void set_training(bool training) = 0;
 };
-
 } // namespace DSO

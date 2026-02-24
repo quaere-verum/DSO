@@ -15,6 +15,11 @@ class Adam final : public Optimiser {
             optim_.step();
             return loss;
         }
+        void set_lr(double lr) {
+            for (auto& p_group : optim_.param_groups()) {
+                p_group.options().set_lr(lr);
+            }
+        }
     private:
         torch::optim::Adam optim_;
 };
