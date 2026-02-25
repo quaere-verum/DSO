@@ -10,10 +10,6 @@ namespace DSO {
 class ControllerImpl : public torch::nn::Module {
 public:
     virtual ~ControllerImpl() = default;
-    virtual torch::Tensor forward(
-        const MarketView& mv,
-        const BatchSpec& batch,
-        const EvalContext& ctx
-    ) = 0;
+    virtual torch::Tensor forward(const MarketView& mv) const = 0;
 };
 } // namespace DSO

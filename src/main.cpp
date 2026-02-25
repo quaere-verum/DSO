@@ -17,89 +17,130 @@ void benchmark_hedge_against_linear(
     DSO::MonteCarloExecutor::Config mc_config,
     std::shared_ptr<DSO::StochasticModelImpl> model,
     const DSO::Option& product,
-    std::shared_ptr<DSO::ControllerImpl> trained_controller,
+    const std::shared_ptr<DSO::ControllerImpl>& trained_controller,
     const std::vector<double>& control_times,
     const DSO::ControlIntervals& control_intervals,
     const DSO::SimulationGridSpec& gridspec,
-    DSO::MCHedgeObjective& objective
+    const DSO::RiskMeasure& risk
 ) {
-    DSO::EvalContext ctx(std::move(std::make_unique<DSO::RNGStream>(0)));
+    model->eval();
+    for (auto& param : model->parameters())
+        param.requires_grad_(false);
+
+    DSO::EvalContext ctx(
+        std::make_unique<DSO::RNGStream>(0)
+    );
     ctx.device = torch::kCPU;
     ctx.dtype = torch::kFloat32;
     ctx.training = false;
 
+    // ---- Build batch ----
     DSO::BatchSpec batch;
     batch.batch_index = 0;
     batch.first_path = 0;
     batch.n_paths = n_paths;
     batch.rng_offset = 0;
 
-    torch::Tensor simulated = model->simulate_batch(batch, ctx, nullptr);
+    // ---- Simulate once ----
+    auto simulated = model->simulate_batch(batch, ctx, nullptr);
+
     torch::Tensor payoff = product.compute_payoff(simulated);
 
-    auto opt = torch::TensorOptions().dtype(ctx.dtype);
+    auto opt = torch::TensorOptions()
+        .dtype(ctx.dtype)
+        .device(ctx.device);
+
+    torch::Tensor premium_tensor = torch::full({(int64_t)n_paths}, product_price, opt);
+
+    auto control_indices = DSO::bind_to_grid(control_intervals, gridspec.time_grid);
+
+    // ---- Linear regression features ----
     torch::Tensor A1 = torch::zeros({(int64_t)n_paths}, opt);
     torch::Tensor A2 = torch::zeros({(int64_t)n_paths}, opt);
     torch::Tensor A3 = torch::zeros({(int64_t)n_paths}, opt);
 
-    torch::Tensor premium_tensor = torch::full({(int64_t)n_paths}, product_price, opt);
-    auto control_indices = DSO::bind_to_grid(control_intervals, gridspec.time_grid);
-
     for (size_t k = 0; k < control_intervals.n_intervals(); ++k) {
-        const int64_t t0_idx = control_indices.start_idx[k];
-        const int64_t t1_idx = control_indices.end_idx[k];
 
-        torch::Tensor S0k = simulated.select(1, t0_idx).to(ctx.dtype);
-        torch::Tensor S1k = simulated.select(1, t1_idx).to(ctx.dtype);
+        int64_t t0_idx = control_indices.start_idx[k];
+        int64_t t1_idx = control_indices.end_idx[k];
+
+        torch::Tensor S0k = simulated.spot.select(1, t0_idx);
+        torch::Tensor S1k = simulated.spot.select(1, t1_idx);
+
         torch::Tensor dS = S1k - S0k;
 
         torch::Tensor xk = torch::log(S0k / product.strike());
+
         double tau_k = product.maturity() - control_times[k];
 
-        A1.add_(xk * dS);
-        A2.add_(tau_k * dS);
-        A3.add_(dS);
+        A1 += xk * dS;
+        A2 += torch::full_like(dS, tau_k) * dS;
+        A3 += dS;
     }
 
     torch::Tensor X = torch::stack({A1, A2, A3}, 1);
     torch::Tensor y = payoff.to(ctx.dtype) - premium_tensor;
 
-    // Solve linear regression: X * w = y
-    // Closed-form: w = (X^T X)^(-1) X^T y
+    // ---- Solve closed-form linear regression ----
     torch::Tensor XtX = torch::matmul(X.t(), X);
     torch::Tensor Xty = torch::matmul(X.t(), y.unsqueeze(1));
-
     torch::Tensor w = torch::linalg_solve(XtX, Xty).squeeze();
+
     double w1 = w[0].item<double>();
     double w2 = w[1].item<double>();
     double b  = w[2].item<double>();
 
-    std::cout << "Optimal linear hedge coefficients:\n";
-    std::cout << "w1 = " << w1 << "\n";
-    std::cout << "w2 = " << w2 << "\n";
-    std::cout << "b  = " << b << "\n";
-    auto loss_direct = (torch::matmul(X, w.unsqueeze(1)).squeeze() - y).pow(2).mean();
-    
+    std::cout << "Optimal linear hedge coefficients:\n"
+              << "w1=" << w1 << "\n"
+              << "w2=" << w2 << "\n"
+              << "b =" << b << "\n";
+
+    // ---- Build linear controller with fitted weights ----
     auto feature_extractor = DSO::OptionFeatureExtractor(product);
-    auto regression_controller = DSO::LinearHedgeController(
-        feature_extractor.ptr()
-    );
-    for (auto& pair : regression_controller->named_parameters()) {
-        auto& name = pair.key();
-        auto& p = pair.value();
+    auto linear_controller = DSO::LinearHedgeController(feature_extractor.ptr());
+    for (auto& param : linear_controller->named_parameters()) {
+
+        auto& name = param.key();
+        auto& tensor = param.value();
+
         if (name == "b") {
-            p.data().copy_(torch::tensor({(float)b}, opt));
+            tensor.data().copy_(
+                torch::tensor({(float)b}, opt)
+            );
         } else {
-            p.data().copy_(torch::tensor({(float)w1, (float)w2}, opt));
+            tensor.data().copy_(
+                torch::tensor({(float)w1, (float)w2}, opt)
+            );
         }
     }
-    objective.set_controller(regression_controller.ptr());
-    auto loss = objective.loss(simulated, batch, ctx);
-    std::cout << "Linear Regression Controller MSE = " << loss.item<double>() << "\n";
 
-    objective.set_controller(trained_controller);
-    loss = objective.loss(simulated, batch, ctx);
-    std::cout << "Trained Controller MSE = " << loss.item<double>() << "\n";
+    // ---- Create objective for linear controller ----
+    auto hedging_engine = DSO::HedgingEngine(product_price, control_intervals);
+
+    hedging_engine.bind(gridspec);
+
+    auto linear_objective = DSO::MCHedgeObjective(
+        n_paths,
+        product,
+        *linear_controller,
+        hedging_engine,
+        risk
+    );
+
+    auto linear_loss = linear_objective.loss(simulated, batch, ctx);
+    std::cout << "Linear Controller loss = " << linear_loss.item<double>() << "\n";
+    // ---- Evaluate trained controller ----
+    auto trained_objective = DSO::MCHedgeObjective(
+        n_paths,
+        product,
+        *trained_controller,
+        hedging_engine,
+        risk
+    );
+
+    auto trained_loss = trained_objective.loss(simulated, batch, ctx);
+
+    std::cout << "Trained Controller loss = " << trained_loss.item<double>() << "\n";
 }
 
 void hedging(
@@ -135,15 +176,22 @@ void hedging(
     for (auto& param : controller->parameters()) {
         param.requires_grad_(true);
     }
-    auto objective = DSO::MCHedgeObjective(
-        n_paths,
+    auto hedging_engine = DSO::HedgingEngine(
         product_price,
-        product, 
-        controller.ptr(),
         control_intervals
     );
+    hedging_engine.bind(gridspec);
     model->init(gridspec);
-    objective.bind(gridspec);
+    
+    // auto risk_measure = DSO::MeanSquareRisk();
+    auto risk_measure = DSO::CVaRRisk(0.95);
+    auto objective = DSO::MCHedgeObjective(
+        n_paths,
+        product, 
+        *controller,
+        hedging_engine,
+        risk_measure
+    );
     double lr = 1e-1;
     auto optim = DSO::Adam(torch::optim::Adam(controller->parameters(), torch::optim::AdamOptions(lr)));
     auto trainer = DSO::MonteCarloGradientTrainer(
@@ -183,7 +231,7 @@ void hedging(
         control_times,
         control_intervals,
         gridspec,
-        objective
+        risk_measure
     );
     return;
 }
@@ -213,7 +261,6 @@ void calibration(
     gridspec.time_grid = product.time_grid();
     gridspec.include_t0 = product.include_t0();
     model->init(gridspec);
-    objective.bind(gridspec);
     double lr = 5e-2;
     auto optim = DSO::Adam(torch::optim::Adam(model->parameters(), torch::optim::AdamOptions(lr)));
     auto trainer = DSO::MonteCarloGradientTrainer(
@@ -227,7 +274,7 @@ void calibration(
         optim
     );
     std::cout << "STARTED CALIBRATION\n";
-    for (int iter = 0; iter < 250; ++iter) {
+    for (int iter = 0; iter < 100; ++iter) {
         torch::Tensor loss = optim.step(trainer);
         lr *= 0.975;
         optim.set_lr(lr);

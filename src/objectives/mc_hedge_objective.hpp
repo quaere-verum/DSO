@@ -6,58 +6,33 @@
 #include "control/controller.hpp"
 #include "core/threading.hpp"
 #include "core/time_grid.hpp"
+#include "hedging/hedging.hpp"
+#include "risk/risk_measure.hpp"
 
 namespace DSO {
 class MCHedgeObjective final : public StochasticProgram {
     public:
         MCHedgeObjective(
             size_t n_paths,
-            double initial_cash,
             const Product& product,
-            std::shared_ptr<ControllerImpl> controller,
-            const ControlIntervals& control_intervals
+            const ControllerImpl& controller,
+            const HedgingEngine& hedging_engine,
+            const RiskMeasure& risk_measure
         )
         : n_paths_(n_paths)
-        , initial_cash_(initial_cash)
         , product_(product)
         , controller_(controller)
-        , control_intervals_(control_intervals) {
-            control_intervals_.validate(TIME_EPS);
-        }
+        , hedging_engine_(hedging_engine)
+        , risk_measure_(risk_measure) {}
 
         torch::Tensor loss(
-            const torch::Tensor& simulated,
+            const SimulationResult& simulated,
             const BatchSpec& batch,
             const EvalContext& ctx
         ) override {
-            TORCH_CHECK(simulated.defined(), "MCHedgeObjective: simulated must be defined");
-            TORCH_CHECK(simulated.dim() == 2, "MCHedgeObjective: simulated must be 2D [B,T]");
-            const int64_t B = simulated.size(0);
-            const int64_t T = simulated.size(1);
-            TORCH_CHECK(B > 0 && T > 1, "MCHedgeObjective: simulated must have shape [B, T] with T>1");
-
-            torch::Tensor payoff = product_.compute_payoff(simulated);
-
-            torch::Tensor value = torch::full({B}, initial_cash_, simulated.options());
-            MarketView mv;
-
-            for (size_t k = 0; k < control_intervals_.n_intervals(); ++k) {
-                const int64_t t0_idx = control_indices_.start_idx[k];
-                const int64_t t1_idx = control_indices_.end_idx[k];
-
-                torch::Tensor S0 = simulated.select(1, t0_idx);
-                torch::Tensor S1 = simulated.select(1, t1_idx);
-                mv.S_t = S0;
-                mv.t = control_intervals_.start_times[k];
-                mv.t_next = control_intervals_.end_times[k];
-                mv.t_index = k;
-
-                torch::Tensor hedge = controller_->forward(mv, batch, ctx).squeeze(-1);
-                auto diff = S1 - S0;
-                value = value + hedge * diff;
-            }
-            auto pnl = value - payoff;
-            return pnl.square().mean();
+            HedgingResult result = hedging_engine_.run(simulated, product_, controller_);
+            torch::Tensor risk = risk_measure_.evaluate(result);
+            return risk;
         }
 
         void resample_paths(size_t n_paths) override {
@@ -68,21 +43,13 @@ class MCHedgeObjective final : public StochasticProgram {
 
         size_t n_paths() const { return n_paths_; }
         uint64_t epoch_rng_offset() const { return epoch_rng_offset_; }
-        void bind(const SimulationGridSpec& spec) override {
-            const double T = spec.time_grid.back();
-            TORCH_CHECK(control_intervals_.start_times.back() < T - TIME_EPS, "Last control start must be strictly before maturity");
-            control_indices_ = bind_to_grid(control_intervals_, spec.time_grid);
-        }
-        void set_controller(std::shared_ptr<DSO::ControllerImpl> controller) { controller_ = controller; }
 
     private:
         size_t n_paths_;
-        double initial_cash_;
         const Product& product_;
-        std::shared_ptr<ControllerImpl> controller_;
-        const ControlIntervals& control_intervals_;
-        BoundControlIntervals control_indices_;
-        bool bound_ = false;
+        const ControllerImpl& controller_;
+        const HedgingEngine& hedging_engine_;
+        const RiskMeasure& risk_measure_;
 
         size_t epoch_ = 0;
         uint64_t epoch_rng_offset_ = 0;

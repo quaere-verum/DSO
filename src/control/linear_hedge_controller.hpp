@@ -13,21 +13,15 @@ namespace DSO {
 class LinearHedgeControllerImpl final : public ControllerImpl {
 public:
 
-    LinearHedgeControllerImpl(
-        std::shared_ptr<FeatureExtractorImpl> feature_extractor
-    ) {
+    LinearHedgeControllerImpl(std::shared_ptr<FeatureExtractorImpl> feature_extractor) {
         feature_extractor_ = register_module("feature_extractor", feature_extractor);
         auto opt = torch::TensorOptions().dtype(torch::kFloat32);
         w_ = register_parameter("w", torch::rand({feature_extractor_->feature_dim()}, opt));
         b_ = register_parameter("b", torch::rand({1}, opt));
     }
 
-    torch::Tensor forward(
-        const MarketView& mv,
-        const BatchSpec& batch,
-        const EvalContext& ctx
-    ) override {
-        torch::Tensor x = feature_extractor_->features(mv, batch, ctx);
+    torch::Tensor forward(const MarketView& mv) const override {
+        torch::Tensor x = feature_extractor_->features(mv);
         torch::Tensor hedge = torch::matmul(x, w_) + b_;
         return hedge;
     }

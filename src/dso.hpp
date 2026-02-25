@@ -30,3 +30,11 @@
 
 #include "features/feature_extractor.hpp"
 #include "features/option_features.hpp"
+
+#include "hedging/hedging.hpp"
+
+#include "risk/risk_measure.hpp"
+#include "risk/mean_squared_error.hpp"
+#include "risk/mean_variance.hpp"
+#include "risk/entropic_risk.hpp"
+#include "risk/cvar.hpp"

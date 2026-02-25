@@ -15,13 +15,13 @@ class EuropeanCallOption final : public Option {
         const std::vector<double>& time_grid() const override {return time_grid_;}
         const std::vector<FactorType>& factors() const override {return factors_;}
 
-        torch::Tensor compute_payoff(const torch::Tensor& paths) const override {
-            auto final_prices = paths.select(-1, -1);
+        torch::Tensor compute_payoff(const SimulationResult& simulated) const override {
+            auto final_prices = simulated.spot.select(-1, -1);
             return torch::relu(final_prices - strike_);
         };
 
-        torch::Tensor compute_smooth_payoff(const torch::Tensor& paths) const override {
-            auto final_prices = paths.select(-1, -1);
+        torch::Tensor compute_smooth_payoff(const SimulationResult& simulated) const override {
+            auto final_prices = simulated.spot.select(-1, -1);
             return torch::softplus(final_prices - strike_, softplus_beta_);
         };
 

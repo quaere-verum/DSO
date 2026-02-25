@@ -12,14 +12,11 @@ class OptionFeatureExtractorImpl final : public FeatureExtractorImpl {
             tau_ = torch::tensor(option_.maturity(), opts);
         }
 
-        torch::Tensor features(
-            const MarketView& mv,
-            const BatchSpec& batch,
-            const EvalContext& ctx
-        ) override {
-            auto out = torch::empty({(int64_t)batch.n_paths, 2}, torch::TensorOptions().dtype(ctx.dtype).device(ctx.device));
-            const auto S = mv.S_t;
-
+        torch::Tensor features(const MarketView& mv) override {
+            const auto S = mv.spot;
+            const auto n_paths = S.size(0);
+            auto out = torch::empty({(int64_t)n_paths, 2}, S.options());
+            
             auto col0 = out.select(1, 0);
             torch::log_out(col0, S * strike_inv_);
             out.select(1, 1).copy_(tau_ - mv.t);

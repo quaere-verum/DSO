@@ -126,7 +126,7 @@ private:
 
         auto* perf = eval_ctx.perf;
 
-        torch::Tensor simulated = model_->simulate_batch(batch, eval_ctx, controller_);
+        auto simulated = model_->simulate_batch(batch, eval_ctx, controller_);
         
         torch::Tensor loss;
         {

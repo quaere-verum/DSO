@@ -44,7 +44,7 @@ class BlackScholesModelImpl final : public StochasticModelImpl {
             init_spec_ = &spec;
         }
 
-        torch::Tensor simulate_batch(
+        SimulationResult simulate_batch(
             const BatchSpec& batch,
             const EvalContext& ctx,
             std::shared_ptr<ControllerImpl>
@@ -53,6 +53,7 @@ class BlackScholesModelImpl final : public StochasticModelImpl {
             TORCH_CHECK(init_spec_ != nullptr, "call bind(gridspec) before simulate_batch");
             TORCH_CHECK(ctx.rng.get() != nullptr, "ThreadContext.rng must be set");
 
+            SimulationResult out;
             const auto device = torch::kCPU;
             const int64_t n_steps = dt_.numel();
             const int64_t B = static_cast<int64_t>(batch.n_paths);
@@ -86,9 +87,11 @@ class BlackScholesModelImpl final : public StochasticModelImpl {
 
             if (init_spec_->include_t0) {
                 const torch::Tensor S0_col = s0_tensor_.expand({B, 1});
-                return torch::cat({S0_col, S_future}, 1);
+                out.spot = torch::cat({S0_col, S_future}, 1);
+            } else {
+                out.spot = S_future;
             }
-            return S_future;
+            return out;
         }
 
         const std::vector<DSO::FactorType>& factors() const override {return factors_;}

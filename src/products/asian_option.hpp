@@ -19,13 +19,13 @@ class AsianCallOption final : public Option {
         const std::vector<double>& time_grid() const override { return time_grid_; }
         const std::vector<FactorType>& factors() const override { return factors_; }
 
-        torch::Tensor compute_payoff(const torch::Tensor& paths) const override {
-            auto average_prices = paths.mean(1);
+        torch::Tensor compute_payoff(const SimulationResult& simulated) const override {
+            auto average_prices = simulated.spot.mean(1);
             return torch::relu(average_prices - strike_);
         }
 
-        torch::Tensor compute_smooth_payoff(const torch::Tensor& paths) const override {
-            auto average_prices = paths.mean(1);
+        torch::Tensor compute_smooth_payoff(const SimulationResult& simulated) const override {
+            auto average_prices = simulated.spot.mean(1);
             return torch::softplus(average_prices - strike_, softplus_beta_);
         };
 
