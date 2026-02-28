@@ -61,7 +61,7 @@ class MonteCarloValuation {
 
         MonteCarloValuation(
             Config config,
-            std::shared_ptr<DSO::StochasticModelImpl> model
+            DSO::StochasticModelImpl& model
         )
         : config_(std::move(config))
         , model_(model)
@@ -123,7 +123,7 @@ class MonteCarloValuation {
             if (config_.second_order_derivatives.empty()) return;
 
             std::vector<std::string> names;
-            for (const auto& p : model_->named_parameters()) {
+            for (const auto& p : model_.named_parameters()) {
                 names.push_back(p.key());
             }
 
@@ -178,10 +178,10 @@ class MonteCarloValuation {
             eval_ctx.dtype = torch::kFloat32;
             eval_ctx.training = true;
 
-            auto params = model_->parameters();
+            auto params = model_.parameters();
             const bool need_second = !second_groups_.empty();
 
-            auto simulated = model_->simulate_batch(batch, eval_ctx);
+            auto simulated = model_.simulate_batch(batch, eval_ctx);
             torch::Tensor payoffs = product.compute_smooth_payoff(simulated);
             torch::Tensor value = payoffs.sum();
 
@@ -246,7 +246,7 @@ class MonteCarloValuation {
         std::vector<SecondOrderGroup> second_groups_;
 
         Config config_;
-        std::shared_ptr<DSO::StochasticModelImpl> model_;
+        DSO::StochasticModelImpl& model_;
         DSO::MonteCarloExecutor executor_;
 };
 
@@ -287,7 +287,7 @@ int main() {
     };
     auto valuator = MonteCarloValuation(
         MonteCarloValuation::Config(mc_config, n_paths, second_order_derivatives),
-        model.ptr()
+        *model
     );
     auto start = std::chrono::high_resolution_clock::now();
     auto value = valuator.value(product);

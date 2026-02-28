@@ -57,7 +57,6 @@ int main() {
         }
         auto objective = DSO::MCCalibrationObjective(
             product_price,
-            n_paths,
             product
         );
         DSO::SimulationGridSpec gridspec;
@@ -71,7 +70,7 @@ int main() {
                 mc_config,
                 n_paths
             ),
-            model.ptr(),
+            *model,
             product,
             objective,
             optim

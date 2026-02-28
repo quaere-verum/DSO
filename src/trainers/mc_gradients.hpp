@@ -58,7 +58,7 @@ public:
 
     MonteCarloGradientTrainer(
         Config config,
-        std::shared_ptr<StochasticModelImpl> model,
+        StochasticModelImpl& model,
         const Product& product,
         StochasticProgram& objective,
         Optimiser& optimiser
@@ -71,7 +71,7 @@ public:
         , mc_config_(config_.mc_config) {
 
         TORCH_CHECK(config_.n_paths > 0, "MonteCarloGradientTrainer: n_paths must be > 0");
-        TORCH_CHECK(model_->factors() == product_.factors(), "MonteCarloGradientTrainer: model factors must match product factors");
+        TORCH_CHECK(model_.factors() == product_.factors(), "MonteCarloGradientTrainer: model factors must match product factors");
         for (auto& group : optimiser_.param_groups()) {
             for (auto& p : group.params()) {
                 if (p.requires_grad()) trainable_params_.push_back(p);
@@ -115,7 +115,7 @@ private:
 
         auto* perf = eval_ctx.perf;
 
-        auto simulated = model_->simulate_batch(batch, eval_ctx);
+        auto simulated = model_.simulate_batch(batch, eval_ctx);
         
         torch::Tensor loss;
         {
@@ -168,7 +168,7 @@ private:
 
 private:
     Config config_;
-    std::shared_ptr<StochasticModelImpl> model_;
+    StochasticModelImpl& model_;
     const Product& product_;
     StochasticProgram& objective_;
     Optimiser& optimiser_;

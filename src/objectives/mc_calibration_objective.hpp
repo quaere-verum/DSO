@@ -10,11 +10,9 @@ class MCCalibrationObjective final : public StochasticProgram {
     public:
         MCCalibrationObjective(
             double target_price,
-            size_t n_paths,
             const Product& product
         )
-        : n_paths_(n_paths)
-        , product_(product) {
+        : product_(product) {
             auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
             target_price_ = torch::tensor({static_cast<float>(target_price)}, opt);
         }
@@ -28,18 +26,15 @@ class MCCalibrationObjective final : public StochasticProgram {
             return payoffs.sub(target_price_).mean().square();
         }
 
-        void resample_paths(size_t n_paths) override {
-            n_paths_ = n_paths;
+        void resample_paths() override {
             ++epoch_;
             epoch_rng_offset_ = static_cast<uint64_t>(epoch_) * (1ULL << 32);
         }
 
-        size_t n_paths() const { return n_paths_; }
         uint64_t epoch_rng_offset() const { return epoch_rng_offset_; }
 
     private:
         torch::Tensor target_price_;
-        size_t n_paths_;
 
         const Product& product_;
 

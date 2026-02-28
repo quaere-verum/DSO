@@ -58,39 +58,39 @@ target_compile_definitions(dso_core PUBLIC ${TORCH_CXX_FLAGS})
 # 4. Experiment Executable
 # -------------------------------------------------
 
-file(GLOB EXPERIMENT_SOURCES
-    CONFIGURE_DEPENDS
-    experiments/*.cpp
-)
+# Get all subdirectories in 'experiments'
+file(GLOB SUBDIRS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}/experiments experiments/*)
 
-foreach(EXP_SRC ${EXPERIMENT_SOURCES})
+foreach(DIR ${SUBDIRS})
+    if(IS_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/experiments/${DIR})
+        
+        # Define the target name based on the folder name
+        set(EXP_NAME "exp_${DIR}")
 
-    # Extract filename without extension
-    get_filename_component(EXP_NAME ${EXP_SRC} NAME_WE)
-
-    add_executable(${EXP_NAME}
-        ${EXP_SRC}
-    )
-
-    target_link_libraries(${EXP_NAME}
-        PRIVATE
-            dso_core
-    )
-
-    target_include_directories(${EXP_NAME}
-        PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/src
-    )
-
-    target_compile_features(${EXP_NAME} PRIVATE cxx_std_23)
-
-    if(WIN32)
-        add_custom_command(TARGET ${EXP_NAME} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_RUNTIME_DLLS:${EXP_NAME}>
-                $<TARGET_FILE_DIR:${EXP_NAME}>
-            COMMAND_EXPAND_LISTS
+        # Collect all .cpp and .hpp files in THAT specific folder
+        file(GLOB_RECURSE EXP_SOURCES 
+            "experiments/${DIR}/*.cpp"
+            "experiments/${DIR}/*.hpp"
         )
-    endif()
 
+        add_executable(${EXP_NAME} ${EXP_SOURCES})
+        
+        target_link_libraries(${EXP_NAME} PRIVATE dso_core)
+        target_include_directories(${EXP_NAME} PRIVATE 
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            "experiments/${DIR}" # So #include "heston_utils.hpp" works
+        )
+        
+        target_compile_features(${EXP_NAME} PRIVATE cxx_std_23)
+
+        if(WIN32)
+            add_custom_command(TARGET ${EXP_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    $<TARGET_RUNTIME_DLLS:${EXP_NAME}>
+                    $<TARGET_FILE_DIR:${EXP_NAME}>
+                COMMAND_EXPAND_LISTS
+            )
+        endif()
+
+    endif()
 endforeach()

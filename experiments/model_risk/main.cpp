@@ -118,7 +118,6 @@ void benchmark_against_linear(
     auto hedging_engine = DSO::HedgingEngine(product_price, control_intervals);
     hedging_engine.bind(gridspec);
     auto objective_linear = DSO::MCHedgeObjective(
-        cfg.n_paths,
         product,
         *linear_controller,
         hedging_engine,
@@ -143,7 +142,6 @@ void benchmark_against_linear(
     std::cout << "Linear controller loss = " << linear_loss.item<double>() << "\n";
 
     auto objective_trained = DSO::MCHedgeObjective(
-        cfg.n_paths,
         product,
         *trained_controller,
         hedging_engine,
@@ -375,7 +373,6 @@ int main(int argc, char* argv[]) {
         // ----------------------------------------------------
 
         auto black_scholes_objective = DSO::MCHedgeObjective(
-            cfg.n_paths,
             product,
             *black_scholes_controller,
             hedging_engine,
@@ -384,7 +381,6 @@ int main(int argc, char* argv[]) {
         );
 
         auto heston_objective = DSO::MCHedgeObjective(
-            cfg.n_paths,
             product,
             *heston_controller,
             hedging_engine,
@@ -410,7 +406,7 @@ int main(int argc, char* argv[]) {
         auto black_scholes_trainer =
             DSO::MonteCarloGradientTrainer(
                 {mc_config, cfg.n_paths},
-                black_scholes_model.ptr(),
+                *black_scholes_model,
                 product,
                 black_scholes_objective,
                 black_scholes_optim
@@ -418,7 +414,7 @@ int main(int argc, char* argv[]) {
         auto heston_trainer =
             DSO::MonteCarloGradientTrainer(
                 {mc_config, cfg.n_paths},
-                heston_model.ptr(),
+                *heston_model,
                 product,
                 heston_objective,
                 heston_optim
