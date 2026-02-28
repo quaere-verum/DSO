@@ -181,7 +181,7 @@ class MonteCarloValuation {
             auto params = model_->parameters();
             const bool need_second = !second_groups_.empty();
 
-            torch::Tensor simulated = model_->simulate_batch(batch, eval_ctx);
+            auto simulated = model_->simulate_batch(batch, eval_ctx);
             torch::Tensor payoffs = product.compute_smooth_payoff(simulated);
             torch::Tensor value = payoffs.sum();
 
@@ -270,7 +270,9 @@ int main() {
     auto product = DSO::EuropeanCallOption(maturity, strike);
     double s0 = 100.0;
     double sigma = 0.20;
-    auto model = DSO::BlackScholesModel(s0, sigma, /*use_log_sigma*/false);
+    auto model = DSO::BlackScholesModel(
+        DSO::BlackScholesModelImpl::Config({s0, sigma}, false)
+    );
     DSO::SimulationGridSpec gridspec;
     gridspec.include_t0 = product.include_t0();
     for (auto t : product.time_grid()) {

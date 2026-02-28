@@ -33,7 +33,8 @@ class HedgingEngine {
         HedgingResult run(
             const SimulationResult& simulated,
             const Product& product,
-            const ControllerImpl& controller
+            const ControllerImpl& controller,
+            const FeatureExtractorImpl& feature_extractor
         ) const {
             const auto& S = simulated.spot;
             const int64_t B = S.size(0);
@@ -41,7 +42,10 @@ class HedgingEngine {
             torch::Tensor payoff = product.compute_payoff(simulated);
             torch::Tensor wealth = torch::full({B}, initial_cash_, S.options());
 
-            MarketView state;
+            SimulationState state;
+            state.spot_previous = S.select(1, 0);
+            auto hidden_state_dim = feature_extractor.hidden_state_dim();
+            if (hidden_state_dim) state.hidden_state = torch::zeros({B, (int64_t) *hidden_state_dim}, S.options());
 
             for (size_t k = 0; k < control_intervals_.n_intervals(); ++k) {
 
@@ -56,7 +60,11 @@ class HedgingEngine {
                 state.t = control_intervals_.start_times[k];
                 state.t_next = control_intervals_.end_times[k];
 
-                torch::Tensor hedge = controller.forward(state).squeeze(-1);
+                auto fe_output = feature_extractor.forward(state);
+                auto hedge = controller.forward(fe_output.features);
+                
+                state.hidden_state = fe_output.hidden_state;
+                state.spot_previous = state.spot;
 
                 wealth += hedge * (S.select(1, t1) - state.spot);
             }

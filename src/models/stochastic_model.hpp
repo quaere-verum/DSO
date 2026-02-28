@@ -15,8 +15,7 @@ class StochasticModelImpl : public torch::nn::Module {
         virtual ~StochasticModelImpl() = default;
         virtual SimulationResult simulate_batch(
             const BatchSpec& batch,
-            const EvalContext& ctx,
-            std::shared_ptr<ControllerImpl> controller = nullptr
+            const EvalContext& ctx
         ) = 0;
         virtual void init(const SimulationGridSpec& spec) = 0;
         virtual const std::vector<DSO::FactorType>& factors() const = 0;

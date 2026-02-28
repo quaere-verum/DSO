@@ -13,13 +13,9 @@ class CVaRRisk final : public RiskMeasure {
             const auto& pnl = hedging_result.pnl;
             torch::Tensor loss = -pnl;  // treat losses positive
 
-            int64_t B = loss.size(0);
-            int64_t k = static_cast<int64_t>(std::ceil(alpha_ * B));
-
-            auto sorted = std::get<0>(loss.sort());
-            auto tail = sorted.slice(0, k, B);
-
-            return tail.mean();
+            torch::Tensor z = torch::quantile(loss.detach(), alpha_);
+            torch::Tensor tail = torch::relu(loss - z);
+            return z + tail.mean() / (1.0 - alpha_);
         }
 
     private:

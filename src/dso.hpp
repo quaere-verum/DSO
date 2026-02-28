@@ -7,6 +7,7 @@
 
 #include "models/stochastic_model.hpp"
 #include "models/black_scholes.hpp"
+#include "models/heston.hpp"
 
 #include "simulation/pcg32.hpp"
 #include "simulation/rng_stream.hpp"
@@ -26,7 +27,8 @@
 #include "trainers/mc_gradients.hpp"
 
 #include "control/controller.hpp"
-#include "control/linear_hedge_controller.hpp"
+#include "control/linear_controller.hpp"
+#include "control/nonlinear_controller.hpp"
 
 #include "features/feature_extractor.hpp"
 #include "features/option_features.hpp"

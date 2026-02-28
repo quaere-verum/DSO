@@ -61,34 +61,23 @@ public:
         std::shared_ptr<StochasticModelImpl> model,
         const Product& product,
         StochasticProgram& objective,
-        Optimiser& optimiser,
-        std::shared_ptr<ControllerImpl> controller = nullptr
+        Optimiser& optimiser
     )
         : config_(std::move(config))
         , model_(model)
         , product_(product)
-        , controller_(controller)
         , objective_(objective)
         , optimiser_(optimiser)
         , mc_config_(config_.mc_config) {
 
         TORCH_CHECK(config_.n_paths > 0, "MonteCarloGradientTrainer: n_paths must be > 0");
         TORCH_CHECK(model_->factors() == product_.factors(), "MonteCarloGradientTrainer: model factors must match product factors");
-        
-        if (controller_) {
-            TORCH_CHECK(!model->is_training(), "MonteCarloGradientTrainer: model must not be in training mode for HEDGING");
-            TORCH_CHECK(controller_->is_training(), "MonteCarloGradientTrainer: controller must be in training mode for HEDGING");
-        } else {
-            TORCH_CHECK(model_->is_training(), "MonteCarloGradientTrainer: model must be in training mode for CALIBRATION");
-        }
-        for (auto& p : model_->parameters()) {
-            if (p.requires_grad()) trainable_params_.push_back(p);
-        }
-        if (controller_) {
-            for (auto& p : controller_->parameters()) {
+        for (auto& group : optimiser_.param_groups()) {
+            for (auto& p : group.params()) {
                 if (p.requires_grad()) trainable_params_.push_back(p);
             }
         }
+        TORCH_CHECK(!trainable_params_.empty(), "MonteCarloGradientTrainer: no trainable parameters found in optimiser");
     }
 
     torch::Tensor evaluate_and_set_grads() {
@@ -126,7 +115,7 @@ private:
 
         auto* perf = eval_ctx.perf;
 
-        auto simulated = model_->simulate_batch(batch, eval_ctx, controller_);
+        auto simulated = model_->simulate_batch(batch, eval_ctx);
         
         torch::Tensor loss;
         {
@@ -181,7 +170,6 @@ private:
     Config config_;
     std::shared_ptr<StochasticModelImpl> model_;
     const Product& product_;
-    std::shared_ptr<ControllerImpl> controller_;
     StochasticProgram& objective_;
     Optimiser& optimiser_;
     MonteCarloExecutor mc_config_;

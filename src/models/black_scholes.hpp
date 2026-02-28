@@ -14,16 +14,93 @@
 
 namespace DSO {
 
+struct BlackScholesModelParameters {
+    double s0;
+    double sigma;
+};
+
+torch::Tensor compute_black_scholes_price(
+    torch::Tensor s0, 
+    torch::Tensor sigma,
+    torch::Tensor K, 
+    double T, 
+    double r = 0.0
+) {
+    auto r_tensor = torch::tensor(r, s0.options());
+    auto T_sqrt = std::sqrt(T);
+    auto d1 = (torch::log(s0 / K) + (r + 0.5 * sigma.pow(2)) * T) / (sigma * T_sqrt);
+    auto d2 = d1 - sigma * T_sqrt;
+    auto price = s0 * torch::special::ndtr(d1) - K * torch::exp(-r_tensor * T) * torch::special::ndtr(d2);
+
+    return price;
+}
+
+BlackScholesModelParameters calibrate_black_scholes_model_parameters(
+    double market_price, 
+    double market_strike,
+    double s0,
+    double maturity,
+    bool verbose = false
+) {
+    auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
+    auto market_price_scaled = torch::tensor(market_price / s0, opt);
+    auto market_strike_scaled = torch::tensor(market_strike / s0, opt);
+    
+    auto s0_tensor = torch::tensor(1.0, opt);
+    auto raw_sigma = torch::log(torch::tensor(0.20, opt)).set_requires_grad(true);
+
+    std::vector<torch::Tensor> params = {raw_sigma};
+    auto optim_options = torch::optim::LBFGSOptions().lr(1.0).max_iter(20).line_search_fn("strong_wolfe");
+    torch::optim::LBFGS optim(params, optim_options);
+    auto closure = [&]() -> torch::Tensor {
+        optim.zero_grad();
+
+        auto sigma    = torch::exp(raw_sigma);
+
+        auto model_price = DSO::compute_black_scholes_price(s0_tensor, sigma, market_strike_scaled, maturity);
+        auto loss = torch::mse_loss(model_price, market_price_scaled);
+        
+        loss.backward();
+        return loss;
+    };
+
+    if (verbose) std::cout << "STARTING BLACK-SCHOLES MODEL CALIBRATION\n";
+    std::cout << std::fixed << std::setprecision(6);
+    try {
+        for (int i = 0; i < 15; ++i) {
+            auto loss = optim.step(closure);
+            
+            if (verbose) std::cout << "Iteration " << i << " | MSE: " << loss.item<double>() << "\n";
+            if (loss.item<double>() < 1e-9) break; // Convergence threshold
+        }
+    } catch (const c10::Error& e) {
+        std::cerr << "LibTorch Error: " << e.msg() << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Standard Error: " << e.what() << std::endl;
+    }
+    
+    BlackScholesModelParameters out;
+    out.s0 = s0;
+    out.sigma = torch::exp(raw_sigma).item<double>();
+    if (verbose) std::cout << "\nCalibrated Parameters:\n"
+              << "sigma:    " << out.sigma << "\n";
+    return out;
+}
+
 class BlackScholesModelImpl final : public StochasticModelImpl {
     public:
-        BlackScholesModelImpl(double s0, double sigma, bool use_log_sigma)
-        : use_log_sigma_(use_log_sigma) {
+        struct Config {
+            BlackScholesModelParameters parameters;
+            bool use_log_sigma;
+        };
+        BlackScholesModelImpl(const Config& config)
+        : config_(config) {
             auto opt = torch::TensorOptions().dtype(torch::kFloat32);
-            s0_tensor_ = register_parameter("s0", torch::tensor({static_cast<float>(s0)}, opt));
-            if (use_log_sigma_) {
-                log_sigma_tensor_ = register_parameter("log_sigma", torch::tensor({static_cast<float>(std::log(sigma))}, opt));
+            s0_tensor_ = register_parameter("s0", torch::tensor({static_cast<float>(config_.parameters.s0)}, opt));
+            if (config_.use_log_sigma) {
+                log_sigma_tensor_ = register_parameter("log_sigma", torch::tensor({static_cast<float>(std::log(config.parameters.sigma))}, opt));
             } else {
-                sigma_tensor_ = register_parameter("sigma", torch::tensor({static_cast<float>(sigma)}, opt));
+                sigma_tensor_ = register_parameter("sigma", torch::tensor({static_cast<float>(config.parameters.sigma)}, opt));
             }
             
         }
@@ -46,10 +123,8 @@ class BlackScholesModelImpl final : public StochasticModelImpl {
 
         SimulationResult simulate_batch(
             const BatchSpec& batch,
-            const EvalContext& ctx,
-            std::shared_ptr<ControllerImpl>
+            const EvalContext& ctx
         ) override {
-            TORCH_CHECK(batch.n_paths > 0, "batch.n_paths must be > 0");
             TORCH_CHECK(init_spec_ != nullptr, "call bind(gridspec) before simulate_batch");
             TORCH_CHECK(ctx.rng.get() != nullptr, "ThreadContext.rng must be set");
 
@@ -97,10 +172,10 @@ class BlackScholesModelImpl final : public StochasticModelImpl {
         const std::vector<DSO::FactorType>& factors() const override {return factors_;}
 
     private:
-        torch::Tensor get_sigma_() const { return use_log_sigma_ ? torch::exp(log_sigma_tensor_) : sigma_tensor_; }
+        torch::Tensor get_sigma_() const { return config_.use_log_sigma ? torch::exp(log_sigma_tensor_) : sigma_tensor_; }
 
     private:
-        bool use_log_sigma_;
+        const Config& config_;
 
         torch::Tensor dt_;
         torch::Tensor sqrt_dt_;

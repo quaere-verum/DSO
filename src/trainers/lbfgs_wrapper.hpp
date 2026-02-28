@@ -15,6 +15,10 @@ class LBFGS final : public Optimiser {
             };
             return optim_.step(closure);
         }
+
+        std::vector<torch::optim::OptimizerParamGroup> param_groups() const override {
+            return optim_.param_groups();
+        }
     private:
         torch::optim::LBFGS optim_;
 };
