@@ -1,24 +1,24 @@
 cmake_minimum_required(VERSION 3.21)
-project(DSO LANGUAGES CXX)
+project(DSO LANGUAGES CXX CUDA)
 
 add_compile_definitions(_WIN32_WINNT=0x0603 WINVER=0x0603)
 
 # -------------------------------------------------
 # 1. Compiler Configuration
 # -------------------------------------------------
-if(MSVC)
-  set(CMAKE_CXX_STANDARD 23)
-  set(CMAKE_CXX_STANDARD_REQUIRED ON)
-  set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CUDA_STANDARD 20)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
-  # Optimisation flags
-  add_compile_options(/O2 /fp:fast /arch:AVX2)
-endif()
+# Optimisation flags
+add_compile_options(/O2 /fp:fast /arch:AVX2)
 
 # -------------------------------------------------
 # 2. LibTorch Setup
 # -------------------------------------------------
-set(TORCH_INSTALL_DIR "C:/libtorch")
+set(TORCH_INSTALL_DIR "C:/libtorch_cuda/libtorch")
 list(APPEND CMAKE_PREFIX_PATH "${TORCH_INSTALL_DIR}")
 
 find_package(Torch CONFIG REQUIRED)

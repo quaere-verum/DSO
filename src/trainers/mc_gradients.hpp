@@ -54,6 +54,7 @@ public:
     struct Config {
         MonteCarloExecutor::Config mc_config;
         size_t n_paths;
+        torch::Device device = torch::kCPU;
     };
 
     MonteCarloGradientTrainer(
@@ -109,7 +110,7 @@ private:
         batch.n_paths = batch_n;
         batch.rng_offset = epoch_rng_offset;
 
-        eval_ctx.device = torch::kCPU;      // BS model currently CPU; generalize later
+        eval_ctx.device = config_.device;
         eval_ctx.dtype = torch::kFloat32;
         eval_ctx.training = true;
 

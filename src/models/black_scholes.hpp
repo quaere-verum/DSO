@@ -129,24 +129,31 @@ class BlackScholesModelImpl final : public StochasticModelImpl {
             TORCH_CHECK(ctx.rng.get() != nullptr, "ThreadContext.rng must be set");
 
             SimulationResult out;
-            const auto device = torch::kCPU;
+            const auto device = ctx.device;
+            const auto dtype = ctx.dtype;
             const int64_t n_steps = dt_.numel();
             const int64_t B = static_cast<int64_t>(batch.n_paths);
 
-            auto z = torch::empty({B, n_steps}, torch::TensorOptions().device(torch::kCPU).dtype(torch::kFloat32));
-
-            float* z_ptr = z.data_ptr<float>();
-
             auto* perf = ctx.perf;
-            {
+            auto opts = torch::TensorOptions().device(device).dtype(dtype);
+            torch::Tensor z;
+            
+            if (device == torch::kCPU) {
+                
                 std::optional<DSO::ScopedTimer> rng_timer;
                 if (perf) rng_timer.emplace(DSO::ScopedTimer(*perf, DSO::Stage::Rng));
 
+                z = torch::empty({B, n_steps}, opts);
+                float* z_ptr = z.data_ptr<float>();
                 for (int64_t i = 0; i < B; ++i) {
                     const uint64_t path_idx = static_cast<uint64_t>(batch.first_path) + static_cast<uint64_t>(i);
                     ctx.rng->seed_path(path_idx + batch.rng_offset);
                     ctx.rng->fill_normal(z_ptr + i * n_steps, n_steps, 0.0, 1.0);
                 }
+            } else {
+                std::optional<DSO::ScopedTimer> rng_timer;
+                if (perf) rng_timer.emplace(DSO::ScopedTimer(*perf, DSO::Stage::Rng));
+                z = torch::randn({B, n_steps}, opts);                
             }
             
 

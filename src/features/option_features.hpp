@@ -18,7 +18,7 @@ class OptionFeatureExtractorImpl final : public FeatureExtractorImpl {
             const auto S = state.spot;
             const int64_t batch_size = S.size(0);
             features.push_back(torch::log(S * strike_inv_));
-            features.push_back(torch::full({batch_size}, tau_ - state.t));
+            features.push_back(torch::full({batch_size}, tau_ - state.t, S.options()));
             FeatureExtractorResult out;
             out.features = torch::stack(features, 1);
             return out;

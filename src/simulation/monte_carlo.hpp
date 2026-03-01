@@ -64,6 +64,7 @@ class MonteCarloExecutor {
             size_t batch_size;
             size_t seed;
             bool collect_perf = false;
+            torch::Device device = torch::kCPU;
         };
 
         MonteCarloExecutor(
@@ -77,6 +78,39 @@ class MonteCarloExecutor {
         template<class Result, class BatchFunc>
         requires MergeableResult<Result> && BatchComputes<BatchFunc, Result>
         Result run(size_t total_paths, BatchFunc&& f) {
+            if (config_.device == torch::kCPU) {
+                return run_cpu<Result>(total_paths, std::forward<BatchFunc>(f));
+            } else {
+                return run_gpu<Result>(total_paths, std::forward<BatchFunc>(f));
+            }
+        }
+
+    private:
+        template<class Result, class BatchFunc>
+        Result run_gpu(size_t total_paths, BatchFunc&& f) {
+            const size_t B = config_.batch_size;
+            const size_t n_batches = (total_paths + B - 1) / B;
+            
+            Result final_acc{};
+            DSO::EvalContext ctx(nullptr); // Use torch rng, custom RNG not supported on GPU yet
+            ctx.device = torch::kCUDA;
+
+            // We run batches sequentially on the CPU, 
+            // but each batch triggers a massive parallel kernel on the GPU.
+            for (size_t b = 0; b < n_batches; ++b) {
+                const size_t first_path = b * B;
+                const size_t batch_n = std::min(B, total_paths - first_path);
+
+                Result tmp = std::invoke(f, b, first_path, batch_n, ctx);
+                
+                if (b == 0) final_acc = std::move(tmp);
+                else final_acc.merge(std::move(tmp));
+            }
+            return final_acc;
+        }
+
+        template<class Result, class BatchFunc>
+        Result run_cpu(size_t total_paths, BatchFunc&& f) {
             TORCH_CHECK(total_paths > 0, "total_paths must be > 0");
             TORCH_CHECK(torch::get_num_interop_threads() == 1, "set torch interop threads to 1");
             TORCH_CHECK(torch::get_num_threads() == 1, "set torch intraop threads to 1");

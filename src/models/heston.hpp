@@ -276,7 +276,7 @@ class HestonModelImpl final : public StochasticModelImpl {
             }
 
             dt_ = torch::from_blob(dt_host.data(), {n_steps},
-                torch::TensorOptions().dtype(torch::kFloat32)).clone();
+                torch::TensorOptions().dtype(torch::kFloat32).device(s0_tensor_.device())).clone();
             sqrt_dt_ = torch::sqrt(dt_);
             init_spec_ = &spec;
         }
@@ -288,23 +288,32 @@ class HestonModelImpl final : public StochasticModelImpl {
             TORCH_CHECK(init_spec_ != nullptr, "call init before simulate");
             TORCH_CHECK(ctx.rng.get() != nullptr, "rng must be set");
 
+            auto device = ctx.device;
+            auto dtype = ctx.dtype;
+
             SimulationResult out;
             const int64_t B = batch.n_paths;
             const int64_t n_steps = dt_.numel();
 
-            auto opt = torch::TensorOptions().dtype(torch::kFloat32);
-            auto z1 = torch::empty({B, n_steps}, opt);
-            auto z2 = torch::empty({B, n_steps}, opt);
+            auto opt = torch::TensorOptions().dtype(dtype).device(device);
+            torch::Tensor z1, z2;
+            if (device == torch::kCPU) {
+                z1 = torch::empty({B, n_steps}, opt);
+                z2 = torch::empty({B, n_steps}, opt);
 
-            float* z1_ptr = z1.data_ptr<float>();
-            float* z2_ptr = z2.data_ptr<float>();
+                float* z1_ptr = z1.data_ptr<float>();
+                float* z2_ptr = z2.data_ptr<float>();
 
-            // --- RNG ---
-            for (int64_t i = 0; i < B; ++i) {
-                uint64_t path_idx = (uint64_t)batch.first_path + (uint64_t)i;
-                ctx.rng->seed_path(path_idx + batch.rng_offset);
-                ctx.rng->fill_normal(z1_ptr + i*n_steps, n_steps, 0.0, 1.0);
-                ctx.rng->fill_normal(z2_ptr + i*n_steps, n_steps, 0.0, 1.0);
+                // --- RNG ---
+                for (int64_t i = 0; i < B; ++i) {
+                    uint64_t path_idx = (uint64_t)batch.first_path + (uint64_t)i;
+                    ctx.rng->seed_path(path_idx + batch.rng_offset);
+                    ctx.rng->fill_normal(z1_ptr + i*n_steps, n_steps, 0.0, 1.0);
+                    ctx.rng->fill_normal(z2_ptr + i*n_steps, n_steps, 0.0, 1.0);
+                }
+            } else {
+                z1 = torch::randn({B, n_steps}, opt);
+                z2 = torch::randn({B, n_steps}, opt);
             }
 
             // --- Correlate Brownian motions ---
