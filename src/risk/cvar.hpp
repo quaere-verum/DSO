@@ -4,21 +4,24 @@
 #include <torch/torch.h>
 
 namespace DSO {
-class CVaRRisk final : public RiskMeasure {
+class CVaRRiskImpl final : public RiskMeasureImpl {
     public:
-        explicit CVaRRisk(double alpha)
-            : alpha_(alpha) {}
+        explicit CVaRRiskImpl(double alpha)
+            : alpha_(alpha) {
+                z_ = register_parameter("z", torch::zeros({1}, torch::TensorOptions().dtype(torch::kFloat32)));
+            }
 
-        torch::Tensor evaluate(const HedgingResult& hedging_result) const override {
+        torch::Tensor forward(const HedgingResult& hedging_result) const override {
             const auto& pnl = hedging_result.pnl;
             torch::Tensor loss = -pnl;  // treat losses positive
 
-            torch::Tensor z = torch::quantile(loss.detach(), alpha_);
-            torch::Tensor tail = torch::relu(loss - z);
-            return z + tail.mean() / (1.0 - alpha_);
+            torch::Tensor tail = torch::relu(loss - z_);
+            return z_ + tail.mean() / (1.0 - alpha_);
         }
 
     private:
         double alpha_;
+        torch::Tensor z_;
 };
+TORCH_MODULE(CVaRRisk);
 } // namespace DSO

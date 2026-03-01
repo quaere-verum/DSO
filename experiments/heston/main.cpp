@@ -10,7 +10,6 @@
 #include "feature_extractors.hpp"
 #include "config.hpp"
 #include "training.hpp"
-#include "risk_factory.hpp"
 #include "evaluation.hpp"
 #include "linreg_benchmark.hpp"
 
@@ -67,15 +66,12 @@ int main(int argc, char* argv[]) {
         feature_extractor->to(cfg.device);
         auto controller = DSO::MlpController(DSO::MlpControllerImpl::Config(feature_extractor->feature_dim(), cfg.hidden_sizes)).ptr();
         controller->to(cfg.device);
-
-        auto risk = make_risk(cfg);
     
         train_hedge_parameters(
             product,
             *model,
             *feature_extractor,
             *controller,
-            *risk,
             control_times,
             cfg
         );
@@ -96,7 +92,6 @@ int main(int argc, char* argv[]) {
             *model,
             *feature_extractor,
             *controller,
-            *risk,
             control_times,
             cfg
         );
@@ -120,7 +115,6 @@ int main(int argc, char* argv[]) {
             *model,
             *linreg_feature_extractor,
             *linreg_controller,
-            *risk,
             control_times,
             cfg
         );

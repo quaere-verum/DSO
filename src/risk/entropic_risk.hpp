@@ -3,12 +3,12 @@
 #include <torch/torch.h>
 
 namespace DSO {
-class EntropicRisk final : public RiskMeasure {
+class EntropicRiskImpl final : public RiskMeasureImpl {
     public:
-        explicit EntropicRisk(double gamma)
+        explicit EntropicRiskImpl(double gamma)
             : gamma_(gamma) {}
 
-        torch::Tensor evaluate(const HedgingResult& hedging_result) const override {
+        torch::Tensor forward(const HedgingResult& hedging_result) const override {
             const auto& pnl = hedging_result.pnl;
             torch::Tensor scaled = gamma_ * pnl;
 
@@ -23,4 +23,5 @@ class EntropicRisk final : public RiskMeasure {
     private:
         double gamma_;
 };
+TORCH_MODULE(EntropicRisk);
 } // namespace DSO

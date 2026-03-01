@@ -1,6 +1,7 @@
 #pragma once
 #include "config.hpp"
 #include "dso.hpp"
+#include "risk_factory.hpp"
 #include <torch/torch.h>
 
 
@@ -9,10 +10,12 @@ void train_hedge_parameters(
     DSO::StochasticModelImpl& model,
     DSO::FeatureExtractorImpl& feature_extractor,
     DSO::ControllerImpl& controller,
-    DSO::RiskMeasure& risk,
     std::vector<double>& control_times,
     const ExperimentConfig& cfg
 ) {
+    auto risk = make_risk(cfg);
+    risk->to(cfg.device);
+
     model.eval();
     for (auto& p : model.parameters()) p.requires_grad_(false);
     DSO::ControlIntervals intervals;
@@ -34,6 +37,7 @@ void train_hedge_parameters(
 
     for (auto& p : feature_extractor.parameters()) p.requires_grad_(true);
     for (auto& p : controller.parameters()) p.requires_grad_(true);
+    for (auto& p : risk->parameters()) p.requires_grad_(true);
 
     auto hedging_engine = DSO::HedgingEngine(cfg.product_price, intervals);
     hedging_engine.bind(gridspec);
@@ -42,7 +46,7 @@ void train_hedge_parameters(
         product,
         controller,
         hedging_engine,
-        risk,
+        *risk,
         feature_extractor
     );
 
@@ -50,9 +54,11 @@ void train_hedge_parameters(
 
     auto control_params = controller.parameters();
     auto feat_params = feature_extractor.parameters();
+    auto risk_params = risk->parameters();
 
     params.insert(params.end(), control_params.begin(), control_params.end());
     params.insert(params.end(), feat_params.begin(), feat_params.end());
+    params.insert(params.end(), risk_params.begin(), risk_params.end());
 
     auto optim = DSO::Adam(
         torch::optim::Adam(

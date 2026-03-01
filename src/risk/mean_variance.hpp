@@ -3,12 +3,12 @@
 #include <torch/torch.h>
 
 namespace DSO {
-class MeanVarianceRisk final : public RiskMeasure {
+class MeanVarianceRiskImpl final : public RiskMeasureImpl {
     public:
-        explicit MeanVarianceRisk(double lambda)
+        explicit MeanVarianceRiskImpl(double lambda)
             : lambda_(lambda) {}
 
-        torch::Tensor evaluate(const HedgingResult& hedging_result) const override {
+        torch::Tensor forward(const HedgingResult& hedging_result) const override {
             const auto& pnl = hedging_result.pnl;
             auto mean = pnl.mean();
             auto var  = (pnl - mean).square().mean();
@@ -18,4 +18,5 @@ class MeanVarianceRisk final : public RiskMeasure {
     private:
         double lambda_;
 };
+TORCH_MODULE(MeanVarianceRisk);
 } // namespace DSO

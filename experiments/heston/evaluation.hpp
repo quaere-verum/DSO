@@ -96,7 +96,6 @@ double eval_hedge_parameters(
     DSO::StochasticModelImpl& model,
     DSO::FeatureExtractorImpl& feature_extractor,
     DSO::ControllerImpl& controller,
-    DSO::RiskMeasure& risk,
     std::vector<double>& control_times,
     const ExperimentConfig& cfg
 ) {
@@ -120,26 +119,47 @@ double eval_hedge_parameters(
     gridspec.time_grid = master_grid;
     model.init(gridspec);
 
-    for (auto& p : feature_extractor.parameters()) p.requires_grad_(true);
-    for (auto& p : controller.parameters()) p.requires_grad_(true);
+    for (auto& p : feature_extractor.parameters()) p.requires_grad_(false);
+    for (auto& p : controller.parameters()) p.requires_grad_(false);
+
+    feature_extractor.eval();
+    controller.eval();
 
     auto hedging_engine = DSO::HedgingEngine(cfg.product_price, intervals);
     hedging_engine.bind(gridspec);
 
-    auto objective = DSO::MCHedgeObjective(
+
+    DSO::BatchSpec batch;
+    batch.batch_index = 0;
+    batch.first_path = 0;
+    batch.n_paths = cfg.n_paths;
+    batch.rng_offset = 0;
+
+    DSO::EvalContext ctx(std::make_unique<DSO::RNGStream>(cfg.eval_seed));
+    ctx.device = cfg.device;
+
+    auto simulated = model.simulate_batch(batch, ctx);
+    auto hedge_result = hedging_engine.run(
+        simulated,
         product,
         controller,
-        hedging_engine,
-        risk,
         feature_extractor
     );
+    
+    if (cfg.risk_name == "cvar") {
+        auto pnl = hedge_result.pnl;
+        torch::Tensor loss = -pnl;
 
-    auto evaluator = MonteCarloLoss(
-        MonteCarloLoss::Config(DSO::MonteCarloExecutor::Config(cfg.n_threads, cfg.batch_size, cfg.eval_seed, false, cfg.device), cfg.n_paths),
-        model,
-        objective
-    );
+        double alpha = cfg.risk_alpha;
 
-    auto loss = evaluator.loss();
-    return loss;
+        torch::Tensor z = torch::quantile(loss, alpha, /*dim=*/0, /*interpolation=*/"linear");
+        torch::Tensor tail = torch::relu(loss - z);
+        torch::Tensor cvar = z + tail.mean() / (1.0 - alpha);
+
+        return cvar.item<double>();
+    } else {
+        auto risk = make_risk(cfg);
+        auto loss = risk->forward(hedge_result).item<double>();
+        return loss;
+    }
 }

@@ -1,12 +1,13 @@
 #pragma once
 #include "hedging/hedging.hpp"
+#include <torch/torch.h>
 
 namespace DSO {
 
-class RiskMeasure {
+class RiskMeasureImpl : public torch::nn::Module {
     public:
-        virtual ~RiskMeasure() = default;
-        virtual torch::Tensor evaluate(const HedgingResult& hedging_result) const = 0;
+        virtual ~RiskMeasureImpl() = default;
+        virtual torch::Tensor forward(const HedgingResult& hedging_result) const = 0;
 };
 
 } // namespace DSO

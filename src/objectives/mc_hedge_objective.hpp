@@ -16,7 +16,7 @@ class MCHedgeObjective final : public StochasticProgram {
             const Product& product,
             const ControllerImpl& controller,
             const HedgingEngine& hedging_engine,
-            const RiskMeasure& risk_measure,
+            const RiskMeasureImpl& risk_measure,
             const FeatureExtractorImpl& feature_extractor
         )
         : product_(product)
@@ -31,7 +31,7 @@ class MCHedgeObjective final : public StochasticProgram {
             const EvalContext& ctx
         ) override {
             HedgingResult result = hedging_engine_.run(simulated, product_, controller_, feature_extractor_);
-            torch::Tensor risk = risk_measure_.evaluate(result);
+            torch::Tensor risk = risk_measure_.forward(result);
             return risk;
         }
 
@@ -46,7 +46,7 @@ class MCHedgeObjective final : public StochasticProgram {
         const Product& product_;
         const ControllerImpl& controller_;
         const HedgingEngine& hedging_engine_;
-        const RiskMeasure& risk_measure_;
+        const RiskMeasureImpl& risk_measure_;
         const FeatureExtractorImpl& feature_extractor_;
 
         size_t epoch_ = 0;
