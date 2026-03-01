@@ -27,8 +27,7 @@
 #include "trainers/mc_gradients.hpp"
 
 #include "control/controller.hpp"
-#include "control/linear_controller.hpp"
-#include "control/nonlinear_controller.hpp"
+#include "control/mlp_controller.hpp"
 
 #include "features/feature_extractor.hpp"
 #include "features/option_features.hpp"

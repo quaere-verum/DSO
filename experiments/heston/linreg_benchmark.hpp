@@ -6,7 +6,7 @@
 #include <memory>
 
 
-DSO::LinearController linear_regression_benchmark(
+DSO::MlpController linear_regression_benchmark(
     const DSO::Option& product,
     DSO::StochasticModelImpl& model,
     const DSO::FeatureExtractorImpl& feature_extractor,
@@ -98,12 +98,11 @@ DSO::LinearController linear_regression_benchmark(
     // --------------------------------------------------------
     // Construct linear controller with fitted weights
     // --------------------------------------------------------
-
-    auto linear_controller = DSO::LinearController(feature_extractor.feature_dim());
+    auto linear_controller = DSO::MlpController(DSO::MlpControllerImpl::Config(feature_extractor.feature_dim(), {}));
     for (auto& param : linear_controller->named_parameters()) {
         auto& name = param.key();
         auto& tensor = param.value();
-        if (name == "b") {
+        if (name == "controller.0.bias") {
             tensor.data().copy_(w[0]);
         } else {
             tensor.data().copy_(w.slice(0, 1));

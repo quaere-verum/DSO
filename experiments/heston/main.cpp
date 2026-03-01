@@ -60,10 +60,11 @@ int main(int argc, char* argv[]) {
         auto control_times = DSO::make_time_grid(cfg.maturity, dt, true);
 
         auto feature_extractor = RecurrentOptionFeatureExtractor(product);
-        auto controller = DSO::LinearController(feature_extractor->feature_dim());
+        auto controller = DSO::MlpController(DSO::MlpControllerImpl::Config(feature_extractor->feature_dim(), cfg.hidden_sizes)).ptr();
 
         auto risk = make_risk(cfg);
     
+        auto train_start = std::chrono::high_resolution_clock::now();
         train_hedge_parameters(
             product,
             *model,
@@ -73,6 +74,10 @@ int main(int argc, char* argv[]) {
             control_times,
             cfg
         );
+        auto train_end = std::chrono::high_resolution_clock::now();
+        std::cout << "Duration = " << static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            train_end - train_start
+        ).count()) * 1e-3 << "s\n";
 
         std::cout << "FEATURE PARAMETERS\n";
         for (const auto& p : feature_extractor->named_parameters()) {
@@ -94,7 +99,6 @@ int main(int argc, char* argv[]) {
             control_times,
             cfg
         );
-
         auto linreg_feature_extractor = DSO::OptionFeatureExtractor(product);
         auto linreg_controller = linear_regression_benchmark(
             product,

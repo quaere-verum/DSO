@@ -100,7 +100,7 @@ void benchmark_against_linear(
     // --------------------------------------------------------
 
     auto feature_extractor = DSO::OptionFeatureExtractor(product);
-    auto linear_controller = DSO::LinearController(feature_extractor->feature_dim());
+    auto linear_controller = DSO::MlpController(DSO::MlpControllerImpl::Config(feature_extractor->feature_dim(), {})); // No hidden dims -> linear
     for (auto& param : linear_controller->named_parameters()) {
         auto& name = param.key();
         auto& tensor = param.value();
@@ -350,10 +350,10 @@ int main(int argc, char* argv[]) {
 
         auto feature_extractor = DSO::OptionFeatureExtractor(product);
         
-        auto black_scholes_controller = DSO::LinearController(feature_extractor->feature_dim());
+        auto black_scholes_controller = DSO::MlpController(DSO::MlpControllerImpl::Config(feature_extractor->feature_dim(), {}));
         for (auto& p : black_scholes_controller->parameters()) p.requires_grad_(true);
 
-        auto heston_controller = DSO::LinearController(feature_extractor->feature_dim());
+        auto heston_controller = DSO::MlpController(DSO::MlpControllerImpl::Config(feature_extractor->feature_dim(), {}));
         for (auto& p : heston_controller->parameters()) p.requires_grad_(true);
         // ----------------------------------------------------
         // Hedging Engine

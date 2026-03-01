@@ -3,6 +3,20 @@
 #include <cinttypes>
 #include <unordered_map>
 #include <iostream>
+#include <sstream>
+
+std::vector<size_t> parse_hidden_sizes(const std::string& s) {
+    std::vector<size_t> sizes;
+    std::stringstream ss(s);
+    std::string item;
+    // Splits by comma or space
+    while (std::getline(ss, item, ',')) {
+        if (!item.empty()) {
+            sizes.push_back(std::stoull(item));
+        }
+    }
+    return sizes;
+}
 
 struct ExperimentConfig {
     size_t n_threads = 16;
@@ -18,6 +32,7 @@ struct ExperimentConfig {
     double lr_decay = 0.985;
     double min_lr = 1e-3;
     int training_iters = 100;
+    std::vector<size_t> hidden_sizes = {};
 
     // Fixed product parameters
     double maturity = 1.0;
@@ -61,6 +76,9 @@ ExperimentConfig parse_args(int argc, char* argv[]) {
 
     if (args.count("--iters"))
         cfg.training_iters = std::stoi(args["--iters"]);
+
+    if (args.count("--hidden"))
+        cfg.hidden_sizes = parse_hidden_sizes(args["--hidden"]);
 
     if (cfg.hedge_freq <= 0.0)
         throw std::invalid_argument("hedge-freq must be positive");
