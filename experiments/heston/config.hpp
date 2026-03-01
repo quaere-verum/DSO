@@ -8,14 +8,23 @@
 
 std::vector<size_t> parse_hidden_sizes(const std::string& s) {
     std::vector<size_t> sizes;
-    std::stringstream ss(s);
-    std::string item;
-    // Splits by comma or space
-    while (std::getline(ss, item, ',')) {
-        if (!item.empty()) {
-            sizes.push_back(std::stoull(item));
-        }
+    std::string token;
+    std::stringstream ss;
+
+    for (char c : s) {
+        if (c == ',' || std::isspace(c))
+            ss << ' ';
+        else
+            ss << c;
     }
+
+    std::string normalized = ss.str();
+    std::stringstream ns(normalized);
+
+    while (ns >> token) {
+        sizes.push_back(std::stoull(token));
+    }
+
     return sizes;
 }
 
