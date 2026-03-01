@@ -10,11 +10,10 @@ public:
         : option_(option)
     {
         auto opts = torch::TensorOptions()
-                        .dtype(torch::kFloat32)
-                        .device(torch::kCPU);
+                        .dtype(torch::kFloat32);
 
         strike_inv_ = 1.0 / option_.strike();
-        maturity_   = torch::tensor(option_.maturity(), opts);
+        maturity_ = register_buffer("maturity", torch::tensor({(float)option_.maturity()}, opts));
 
         alpha_raw_ = register_parameter("alpha_raw", torch::zeros({1}, opts));
         beta_ = register_parameter("beta", torch::zeros({1}, opts));
@@ -83,11 +82,10 @@ public:
         : option_(option)
     {
         auto opts = torch::TensorOptions()
-                        .dtype(torch::kFloat32)
-                        .device(torch::kCPU);
+                        .dtype(torch::kFloat32);
 
         strike_inv_ = 1.0 / option_.strike();
-        maturity_   = torch::tensor(option_.maturity(), opts);
+        maturity_ = register_buffer("maturity", torch::tensor({(float)option_.maturity()}, opts));
     }
 
     DSO::FeatureExtractorResult forward(const DSO::SimulationState& state) const override {

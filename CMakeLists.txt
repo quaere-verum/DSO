@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
+cmake_policy(SET CMP0112 NEW)
 project(DSO LANGUAGES CXX CUDA)
 
 add_compile_definitions(_WIN32_WINNT=0x0603 WINVER=0x0603)
@@ -60,7 +61,11 @@ target_compile_definitions(dso_core PUBLIC ${TORCH_CXX_FLAGS})
 
 # Get all subdirectories in 'experiments'
 file(GLOB SUBDIRS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}/experiments experiments/*)
-
+if(WIN32)
+    file(GLOB TORCH_DLLS
+        "${TORCH_INSTALL_DIR}/lib/*.dll"
+    )
+endif()
 foreach(DIR ${SUBDIRS})
     if(IS_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/experiments/${DIR})
         
@@ -86,9 +91,10 @@ foreach(DIR ${SUBDIRS})
         if(WIN32)
             add_custom_command(TARGET ${EXP_NAME} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    $<TARGET_RUNTIME_DLLS:${EXP_NAME}>
+                    ${TORCH_DLLS}
                     $<TARGET_FILE_DIR:${EXP_NAME}>
                 COMMAND_EXPAND_LISTS
+                VERBATIM
             )
         endif()
 

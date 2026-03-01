@@ -22,19 +22,22 @@ int main(int argc, char* argv[]) {
     size_t cores = std::thread::hardware_concurrency();
     std::cout << "CPU cores = " << cores << "\n";
 
-    torch::set_num_threads(1);
-    torch::set_num_interop_threads(1);
-
     try {
 
         auto cfg = parse_args(argc, argv);
 
         std::cout << "\n===== Experiment Configuration =====\n";
+        std::cout << "Device        : " << cfg.device << "\n";
         std::cout << "Paths         : " << cfg.n_paths << "\n";
         std::cout << "Hedge freq    : " << cfg.hedge_freq << "\n";
         std::cout << "Risk          : " << cfg.risk_name << "\n";
         std::cout << "Learning rate : " << cfg.learning_rate << "\n";
         std::cout << "Iterations    : " << cfg.training_iters << "\n\n";
+
+        if (cfg.device == torch::kCPU) {
+            torch::set_num_threads(1);
+            torch::set_num_interop_threads(1);
+        }
 
         // ----------------------------------------------------
         // Model + Product
@@ -55,16 +58,18 @@ int main(int argc, char* argv[]) {
                 false
             )
         );
+        model->to(cfg.device);
 
         const double dt = cfg.maturity / cfg.hedge_freq;
         auto control_times = DSO::make_time_grid(cfg.maturity, dt, true);
 
         auto feature_extractor = RecurrentOptionFeatureExtractor(product);
+        feature_extractor->to(cfg.device);
         auto controller = DSO::MlpController(DSO::MlpControllerImpl::Config(feature_extractor->feature_dim(), cfg.hidden_sizes)).ptr();
+        controller->to(cfg.device);
 
         auto risk = make_risk(cfg);
     
-        auto train_start = std::chrono::high_resolution_clock::now();
         train_hedge_parameters(
             product,
             *model,
@@ -74,10 +79,6 @@ int main(int argc, char* argv[]) {
             control_times,
             cfg
         );
-        auto train_end = std::chrono::high_resolution_clock::now();
-        std::cout << "Duration = " << static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(
-            train_end - train_start
-        ).count()) * 1e-3 << "s\n";
 
         std::cout << "FEATURE PARAMETERS\n";
         for (const auto& p : feature_extractor->named_parameters()) {
@@ -100,6 +101,7 @@ int main(int argc, char* argv[]) {
             cfg
         );
         auto linreg_feature_extractor = DSO::OptionFeatureExtractor(product);
+        linreg_feature_extractor->to(cfg.device);
         auto linreg_controller = linear_regression_benchmark(
             product,
             *model,

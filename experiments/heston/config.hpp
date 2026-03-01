@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <iostream>
 #include <sstream>
+#include <torch/torch.h>
 
 std::vector<size_t> parse_hidden_sizes(const std::string& s) {
     std::vector<size_t> sizes;
@@ -33,6 +34,7 @@ struct ExperimentConfig {
     double min_lr = 1e-3;
     int training_iters = 100;
     std::vector<size_t> hidden_sizes = {};
+    torch::Device device = torch::kCPU;
 
     // Fixed product parameters
     double maturity = 1.0;
@@ -79,6 +81,9 @@ ExperimentConfig parse_args(int argc, char* argv[]) {
 
     if (args.count("--hidden"))
         cfg.hidden_sizes = parse_hidden_sizes(args["--hidden"]);
+
+    if (args.count("--device"))
+        cfg.device = args["--device"] == "cpu" ? torch::kCPU : torch::kCUDA;
 
     if (cfg.hedge_freq <= 0.0)
         throw std::invalid_argument("hedge-freq must be positive");

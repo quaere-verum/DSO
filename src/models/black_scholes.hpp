@@ -105,18 +105,36 @@ class BlackScholesModelImpl final : public StochasticModelImpl {
             
         }
 
+        // void init(const SimulationGridSpec& spec) override {
+        //     const auto& time_grid = spec.time_grid;
+        //     const int64_t n_times = static_cast<int64_t>(time_grid.size());
+        //     const int64_t n_steps = n_times - 1;
+
+        //     std::vector<float> dt_host(n_steps);
+        //     for (int64_t j = 0; j < n_steps; ++j) {
+        //         double dt = time_grid[j + 1] - time_grid[j];
+        //         TORCH_CHECK(dt > 0, "dt must be > 0 for all steps");
+        //         dt_host[j] = static_cast<float>(dt);
+        //     }
+        //     dt_ = torch::from_blob(dt_host.data(), {n_steps}, torch::TensorOptions().dtype(torch::kFloat32).device(s0_tensor_.device())).clone();
+        //     sqrt_dt_ = torch::sqrt(dt_);
+        //     init_spec_ = &spec;
+        // }
         void init(const SimulationGridSpec& spec) override {
             const auto& time_grid = spec.time_grid;
-            const int64_t n_times = static_cast<int64_t>(time_grid.size());
-            const int64_t n_steps = n_times - 1;
+            const int64_t n_steps = static_cast<int64_t>(time_grid.size()) - 1;
 
-            std::vector<float> dt_host(n_steps);
+            // 1. Create CPU tensor directly (standard allocation)
+            auto dt_cpu = torch::empty({n_steps}, torch::kFloat32);
+            float* ptr = dt_cpu.data_ptr<float>();
+
             for (int64_t j = 0; j < n_steps; ++j) {
-                double dt = time_grid[j + 1] - time_grid[j];
-                TORCH_CHECK(dt > 0, "dt must be > 0 for all steps");
-                dt_host[j] = static_cast<float>(dt);
+                ptr[j] = static_cast<float>(time_grid[j+1] - time_grid[j]);
             }
-            dt_ = torch::from_blob(dt_host.data(), {n_steps}, torch::TensorOptions().dtype(torch::kFloat32)).clone();
+
+            // 2. Move to the target device safely
+            auto target_device = s0_tensor_.device();
+            dt_ = dt_cpu.to(target_device); 
             sqrt_dt_ = torch::sqrt(dt_);
             init_spec_ = &spec;
         }
@@ -126,7 +144,6 @@ class BlackScholesModelImpl final : public StochasticModelImpl {
             const EvalContext& ctx
         ) override {
             TORCH_CHECK(init_spec_ != nullptr, "call bind(gridspec) before simulate_batch");
-            TORCH_CHECK(ctx.rng.get() != nullptr, "ThreadContext.rng must be set");
 
             SimulationResult out;
             const auto device = ctx.device;
@@ -139,7 +156,7 @@ class BlackScholesModelImpl final : public StochasticModelImpl {
             torch::Tensor z;
             
             if (device == torch::kCPU) {
-                
+                TORCH_CHECK(ctx.rng.get() != nullptr, "ThreadContext.rng must be set");
                 std::optional<DSO::ScopedTimer> rng_timer;
                 if (perf) rng_timer.emplace(DSO::ScopedTimer(*perf, DSO::Stage::Rng));
 

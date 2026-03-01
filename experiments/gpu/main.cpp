@@ -20,6 +20,7 @@ struct ExperimentConfig {
     double learning_rate = 1e-1;
     double lr_decay = 0.98;
     int training_iters = 100;
+    torch::Device device = torch::kCPU;
 
     // Fixed product parameters
     double maturity = 1.0;
@@ -93,6 +94,9 @@ ExperimentConfig parse_args(int argc, char* argv[]) {
     if (args.count("--iters"))
         cfg.training_iters = std::stoi(args["--iters"]);
 
+    if (args.count("--device"))
+        cfg.device = args["--device"] == "cpu" ? torch::kCPU : torch::kCUDA;
+
     if (cfg.hedge_freq <= 0.0)
         throw std::invalid_argument("hedge-freq must be positive");
 
@@ -130,6 +134,7 @@ int main(int argc, char* argv[]) {
         auto cfg = parse_args(argc, argv);
 
         std::cout << "\n===== Experiment Configuration =====\n";
+        std::cout << "Device        : " << cfg.device << "\n";
         std::cout << "Paths         : " << cfg.n_paths << "\n";
         std::cout << "Hedge freq    : " << cfg.hedge_freq << "\n";
         std::cout << "Risk          : " << cfg.risk_name << "\n";
@@ -139,7 +144,7 @@ int main(int argc, char* argv[]) {
         // ----------------------------------------------------
         // Calibrate Model Parameters
         // ----------------------------------------------------
-
+        auto device = cfg.device;
         auto opt = torch::TensorOptions().dtype(torch::kFloat32);
         torch::Tensor market_strikes = torch::tensor({90.0, 95.0, 100.0, 105.0, 110.0}, opt);
         torch::Tensor market_prices = torch::tensor({14.93, 11.27, 7.97, 5.51, 3.56}, opt);
@@ -163,20 +168,8 @@ int main(int argc, char* argv[]) {
             true
         );
 
-        auto heston_params = DSO::calibrate_heston_model_parameters(
-            market_prices,
-            market_strikes,
-            100.0,
-            cfg.maturity,
-            true
-        );
-
         auto bs_config = DSO::BlackScholesModelImpl::Config(
             bs_params,
-            false
-        );
-        auto heston_config = DSO::HestonModelImpl::Config(
-            heston_params,
             false
         );
 
@@ -187,16 +180,10 @@ int main(int argc, char* argv[]) {
         auto product = DSO::EuropeanCallOption(cfg.maturity, cfg.strike);
 
         auto black_scholes_model = DSO::BlackScholesModel(bs_config);
-        black_scholes_model->to(torch::kCUDA);
+        black_scholes_model->to(device);
         black_scholes_model->eval();
         for (auto& p : black_scholes_model->parameters()) p.requires_grad_(false);
-
-        auto heston_model = DSO::HestonModel(heston_config);
-        heston_model->to(torch::kCUDA);
-        heston_model->eval();
-        for (auto& p : heston_model->parameters()) {
-            p.requires_grad_(false);
-        }
+        std::cout << "MODEL CREATED" << std::endl;
 
         // ----------------------------------------------------
         // Control grid
@@ -221,22 +208,19 @@ int main(int argc, char* argv[]) {
         gridspec.include_t0 = product.include_t0() || control_times.front() < 1e-12;
         gridspec.time_grid = master_grid;
         black_scholes_model->init(gridspec);
-        heston_model->init(gridspec);
 
         // ----------------------------------------------------
         // Controller
         // ----------------------------------------------------
 
         auto feature_extractor = DSO::OptionFeatureExtractor(product);
-        feature_extractor->to(torch::kCUDA);
+        feature_extractor->to(device);
         
         auto black_scholes_controller = DSO::MlpController(DSO::MlpControllerImpl::Config(feature_extractor->feature_dim(), {}));
-        black_scholes_controller->to(torch::kCUDA);
+        black_scholes_controller->to(device);
         for (auto& p : black_scholes_controller->parameters()) p.requires_grad_(true);
+        std::cout << "CONTROLLER MOVED TO GPU" << std::endl;
 
-        auto heston_controller = DSO::MlpController(DSO::MlpControllerImpl::Config(feature_extractor->feature_dim(), {}));
-        heston_controller->to(torch::kCUDA);
-        for (auto& p : heston_controller->parameters()) p.requires_grad_(true);
         // ----------------------------------------------------
         // Hedging Engine
         // ----------------------------------------------------
@@ -262,51 +246,28 @@ int main(int argc, char* argv[]) {
             *feature_extractor
         );
 
-        auto heston_objective = DSO::MCHedgeObjective(
-            product,
-            *heston_controller,
-            hedging_engine,
-            *risk,
-            *feature_extractor
-        );
-
         auto black_scholes_optim = DSO::Adam(
             torch::optim::Adam(
                 black_scholes_controller->parameters(),
                 torch::optim::AdamOptions(cfg.learning_rate)
             )
         );
-        auto heston_optim = DSO::Adam(
-            torch::optim::Adam(
-                heston_controller->parameters(),
-                torch::optim::AdamOptions(cfg.learning_rate)
-            )
-        );
 
 
-        auto mc_config = DSO::MonteCarloExecutor::Config(cores, cfg.batch_size, cfg.seed, false, torch::kCUDA);
+        auto mc_config = DSO::MonteCarloExecutor::Config(cores, cfg.batch_size, cfg.seed, false, device);
         auto black_scholes_trainer =
             DSO::MonteCarloGradientTrainer(
-                {mc_config, cfg.n_paths, torch::kCUDA},
+                {mc_config, cfg.n_paths, device},
                 *black_scholes_model,
                 product,
                 black_scholes_objective,
                 black_scholes_optim
             );
-        auto heston_trainer =
-            DSO::MonteCarloGradientTrainer(
-                {mc_config, cfg.n_paths, torch::kCUDA},
-                *heston_model,
-                product,
-                heston_objective,
-                heston_optim
-            );
-
         // ----------------------------------------------------
         // Black-Scholes Training Loop
         // ----------------------------------------------------
 
-        std::cout << "\nSTART BLACK-SCHOLES TRAINING\n";
+        std::cout << "\nSTART BLACK-SCHOLES TRAINING" << std::endl;;
 
         double lr = cfg.learning_rate;
         auto start = std::chrono::high_resolution_clock::now();
@@ -325,8 +286,8 @@ int main(int argc, char* argv[]) {
             }
         }
         auto end = std::chrono::high_resolution_clock::now();
-        std::cout << "TRAINING FINISHED\n";
-        std::cout << "Duration=" 
+        std::cout << "TRAINING FINISHED" << std::endl;
+        std::cout << "Duration="  
         << static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()) * 1e-3 << "s\n";
 
         // ----------------------------------------------------
@@ -336,70 +297,6 @@ int main(int argc, char* argv[]) {
         for (const auto& p : black_scholes_controller->named_parameters()) {
             std::cout << p.key() << "=\n"
                       << p.value() << "\n";
-        }
-
-        DSO::BatchSpec batch;
-        batch.batch_index = 0;
-        batch.first_path = 0;
-        batch.n_paths = cfg.n_paths;
-        batch.rng_offset = 0;
-
-        // Use independent paths for eval
-        auto ctx = DSO::EvalContext(std::make_unique<DSO::RNGStream>(cfg.seed + 1));
-        auto simulated_heston = heston_model->simulate_batch(batch, ctx);
-        auto simulated_black_scholes = black_scholes_model->simulate_batch(batch, ctx);
-        {
-            torch::NoGradGuard no_grad;
-            auto loss_heston = black_scholes_objective.loss(simulated_heston, batch, ctx);
-            auto loss_black_scholes = black_scholes_objective.loss(simulated_black_scholes, batch, ctx);
-
-            std::cout << "Loss under Heston model = " << loss_heston.item<double>() << "\n";
-            std::cout << "Loss under Black-Scholes model (trained) = " << loss_black_scholes.item<double>() << "\n";
-        }
-
-        // ----------------------------------------------------
-        // Heston Training Loop
-        // ----------------------------------------------------
-
-        std::cout << "\nSTART HESTON TRAINING\n";
-
-        lr = cfg.learning_rate;
-        start = std::chrono::high_resolution_clock::now();
-        for (int iter = 0; iter < cfg.training_iters; ++iter) {
-
-            auto loss = heston_optim.step(heston_trainer);
-
-            lr *= cfg.lr_decay;
-            heston_optim.set_lr(lr);
-
-            if ((iter + 1) % 10 == 0) {
-                std::cout << "iter=" << iter + 1
-                          << " loss="
-                          << loss.item<double>()
-                          << "\n";
-            }
-        }
-        end = std::chrono::high_resolution_clock::now();
-        std::cout << "TRAINING FINISHED\n";
-        std::cout << "Duration=" 
-        << static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()) * 1e-3 << "s\n";
-
-        // ----------------------------------------------------
-        // Print trained params
-        // ----------------------------------------------------
-
-        for (const auto& p : heston_controller->named_parameters()) {
-            std::cout << p.key() << "=\n"
-                      << p.value() << "\n";
-        }
-
-        {
-            torch::NoGradGuard no_grad;
-            auto loss_heston = heston_objective.loss(simulated_heston, batch, ctx);
-            auto loss_black_scholes = heston_objective.loss(simulated_black_scholes, batch, ctx);
-
-            std::cout << "Loss under Heston model (trained) = " << loss_heston.item<double>() << "\n";
-            std::cout << "Loss under Black-Scholes model = " << loss_black_scholes.item<double>() << "\n";
         }
         return 0;
 

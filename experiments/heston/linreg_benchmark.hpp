@@ -31,7 +31,7 @@ DSO::MlpController linear_regression_benchmark(
     gridspec.time_grid = master_grid;
     auto opt = torch::TensorOptions()
         .dtype(torch::kFloat32)
-        .device(torch::kCPU);
+        .device(cfg.device);
 
     DSO::BatchSpec batch;
     batch.batch_index = 0;
@@ -40,6 +40,7 @@ DSO::MlpController linear_regression_benchmark(
     batch.rng_offset = 0;
 
     auto ctx = DSO::EvalContext(std::make_unique<DSO::RNGStream>(cfg.seed));
+    ctx.device = cfg.device;
 
     auto simulated = model.simulate_batch(batch, ctx);
 
@@ -99,6 +100,7 @@ DSO::MlpController linear_regression_benchmark(
     // Construct linear controller with fitted weights
     // --------------------------------------------------------
     auto linear_controller = DSO::MlpController(DSO::MlpControllerImpl::Config(feature_extractor.feature_dim(), {}));
+    linear_controller->to(cfg.device);
     for (auto& param : linear_controller->named_parameters()) {
         auto& name = param.key();
         auto& tensor = param.value();

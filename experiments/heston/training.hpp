@@ -15,7 +15,6 @@ void train_hedge_parameters(
 ) {
     model.eval();
     for (auto& p : model.parameters()) p.requires_grad_(false);
-
     DSO::ControlIntervals intervals;
     intervals.start_times.assign(
         control_times.begin(),
@@ -61,10 +60,10 @@ void train_hedge_parameters(
             torch::optim::AdamOptions(cfg.learning_rate)
         )
     );
-    auto mc_config = DSO::MonteCarloExecutor::Config(cfg.n_threads, cfg.batch_size, cfg.seed, false);
+    auto mc_config = DSO::MonteCarloExecutor::Config(cfg.n_threads, cfg.batch_size, cfg.seed, false, cfg.device);
     auto trainer =
         DSO::MonteCarloGradientTrainer(
-            { mc_config, cfg.n_paths },
+            { mc_config, cfg.n_paths, cfg.device },
             model,
             product,
             objective,

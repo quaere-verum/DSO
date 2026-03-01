@@ -263,20 +263,38 @@ class HestonModelImpl final : public StochasticModelImpl {
             }
         }
 
+        // void init(const SimulationGridSpec& spec) override {
+        //     const auto& time_grid = spec.time_grid;
+        //     const int64_t n_times = static_cast<int64_t>(time_grid.size());
+        //     const int64_t n_steps = n_times - 1;
+
+        //     std::vector<float> dt_host(n_steps);
+        //     for (int64_t j = 0; j < n_steps; ++j) {
+        //         double dt = time_grid[j+1] - time_grid[j];
+        //         TORCH_CHECK(dt > 0, "dt must be > 0");
+        //         dt_host[j] = static_cast<float>(dt);
+        //     }
+
+        //     dt_ = torch::from_blob(dt_host.data(), {n_steps},
+        //         torch::TensorOptions().dtype(torch::kFloat32).device(s0_tensor_.device())).clone();
+        //     sqrt_dt_ = torch::sqrt(dt_);
+        //     init_spec_ = &spec;
+        // }
         void init(const SimulationGridSpec& spec) override {
             const auto& time_grid = spec.time_grid;
-            const int64_t n_times = static_cast<int64_t>(time_grid.size());
-            const int64_t n_steps = n_times - 1;
+            const int64_t n_steps = static_cast<int64_t>(time_grid.size()) - 1;
 
-            std::vector<float> dt_host(n_steps);
+            // 1. Create CPU tensor directly (standard allocation)
+            auto dt_cpu = torch::empty({n_steps}, torch::kFloat32);
+            float* ptr = dt_cpu.data_ptr<float>();
+
             for (int64_t j = 0; j < n_steps; ++j) {
-                double dt = time_grid[j+1] - time_grid[j];
-                TORCH_CHECK(dt > 0, "dt must be > 0");
-                dt_host[j] = static_cast<float>(dt);
+                ptr[j] = static_cast<float>(time_grid[j+1] - time_grid[j]);
             }
 
-            dt_ = torch::from_blob(dt_host.data(), {n_steps},
-                torch::TensorOptions().dtype(torch::kFloat32).device(s0_tensor_.device())).clone();
+            // 2. Move to the target device safely
+            auto target_device = s0_tensor_.device();
+            dt_ = dt_cpu.to(target_device); 
             sqrt_dt_ = torch::sqrt(dt_);
             init_spec_ = &spec;
         }
@@ -286,7 +304,6 @@ class HestonModelImpl final : public StochasticModelImpl {
             const EvalContext& ctx
         ) override {
             TORCH_CHECK(init_spec_ != nullptr, "call init before simulate");
-            TORCH_CHECK(ctx.rng.get() != nullptr, "rng must be set");
 
             auto device = ctx.device;
             auto dtype = ctx.dtype;
@@ -298,6 +315,7 @@ class HestonModelImpl final : public StochasticModelImpl {
             auto opt = torch::TensorOptions().dtype(dtype).device(device);
             torch::Tensor z1, z2;
             if (device == torch::kCPU) {
+                TORCH_CHECK(ctx.rng.get() != nullptr, "rng must be set");
                 z1 = torch::empty({B, n_steps}, opt);
                 z2 = torch::empty({B, n_steps}, opt);
 

@@ -28,7 +28,8 @@ class MonteCarloLoss {
         : config_(std::move(config))
         , model_(model)
         , objective_(objective)
-        , executor_(config_.mc_config) {}
+        , executor_(config_.mc_config)
+        , device_(config_.mc_config.device) {}
 
         double loss() {
 
@@ -69,7 +70,7 @@ class MonteCarloLoss {
             batch.n_paths = batch_n;
             batch.rng_offset = epoch_rng_offset;
 
-            eval_ctx.device = torch::kCPU;
+            eval_ctx.device = device_;
             eval_ctx.dtype = torch::kFloat32;
             eval_ctx.training = true;
 
@@ -87,6 +88,7 @@ class MonteCarloLoss {
         DSO::StochasticModelImpl& model_;
         DSO::StochasticProgram& objective_;
         DSO::MonteCarloExecutor executor_;
+        torch::Device device_;
 };
 
 double eval_hedge_parameters(
@@ -133,7 +135,7 @@ double eval_hedge_parameters(
     );
 
     auto evaluator = MonteCarloLoss(
-        MonteCarloLoss::Config(DSO::MonteCarloExecutor::Config(cfg.n_threads, cfg.batch_size, cfg.eval_seed), cfg.n_paths),
+        MonteCarloLoss::Config(DSO::MonteCarloExecutor::Config(cfg.n_threads, cfg.batch_size, cfg.eval_seed, false, cfg.device), cfg.n_paths),
         model,
         objective
     );
