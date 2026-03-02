@@ -10,7 +10,7 @@ class MCCalibrationObjective final : public StochasticProgram {
     public:
         MCCalibrationObjective(
             double target_price,
-            const Product& product
+            const ProductImpl& product
         )
         : product_(product) {
             auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
@@ -36,7 +36,7 @@ class MCCalibrationObjective final : public StochasticProgram {
     private:
         torch::Tensor target_price_;
 
-        const Product& product_;
+        const ProductImpl& product_;
 
         size_t epoch_ = 0;
         uint64_t epoch_rng_offset_ = 0;

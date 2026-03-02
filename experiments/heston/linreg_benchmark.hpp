@@ -7,7 +7,7 @@
 
 
 DSO::MlpController linear_regression_benchmark(
-    const DSO::Option& product,
+    DSO::OptionImpl& product,
     DSO::StochasticModelImpl& model,
     const DSO::FeatureExtractorImpl& feature_extractor,
     const std::vector<double>& control_times,
@@ -33,6 +33,8 @@ DSO::MlpController linear_regression_benchmark(
         .dtype(torch::kFloat32)
         .device(cfg.device);
 
+    model.bind(gridspec);
+    product.bind(gridspec);
     DSO::BatchSpec batch;
     batch.batch_index = 0;
     batch.first_path = 0;
@@ -47,7 +49,7 @@ DSO::MlpController linear_regression_benchmark(
     auto payoff = product.compute_payoff(simulated);
     auto premium = torch::full({(int64_t)cfg.n_paths}, cfg.product_price, opt);
 
-    auto control_indices = DSO::bind_to_grid(control_intervals, gridspec.time_grid);
+    auto control_indices = DSO::bind_control_to_grid(control_intervals, gridspec.time_grid);
 
     torch::Tensor X = torch::zeros({(int64_t)cfg.n_paths, (int64_t)feature_extractor.feature_dim() + 1}, opt);
     torch::Tensor c = torch::ones({(int64_t)cfg.n_paths, 1}, opt);

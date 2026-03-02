@@ -43,6 +43,7 @@ int main(int argc, char* argv[]) {
         // ----------------------------------------------------
 
         auto product = DSO::EuropeanCallOption(cfg.maturity, cfg.strike);
+        product->to(cfg.device);
 
         auto model = DSO::HestonModel(
             DSO::HestonModelImpl::Config(
@@ -62,13 +63,13 @@ int main(int argc, char* argv[]) {
         const double dt = cfg.maturity / cfg.hedge_freq;
         auto control_times = DSO::make_time_grid(cfg.maturity, dt, true);
 
-        auto feature_extractor = RecurrentOptionFeatureExtractor(product);
+        auto feature_extractor = RecurrentOptionFeatureExtractor(*product);
         feature_extractor->to(cfg.device);
         auto controller = DSO::MlpController(DSO::MlpControllerImpl::Config(feature_extractor->feature_dim(), cfg.hidden_sizes)).ptr();
         controller->to(cfg.device);
     
         train_hedge_parameters(
-            product,
+            *product,
             *model,
             *feature_extractor,
             *controller,
@@ -88,17 +89,17 @@ int main(int argc, char* argv[]) {
         }
 
         auto loss = eval_hedge_parameters(
-            product,
+            *product,
             *model,
             *feature_extractor,
             *controller,
             control_times,
             cfg
         );
-        auto linreg_feature_extractor = DSO::OptionFeatureExtractor(product);
+        auto linreg_feature_extractor = DSO::OptionFeatureExtractor(*product);
         linreg_feature_extractor->to(cfg.device);
         auto linreg_controller = linear_regression_benchmark(
-            product,
+            *product,
             *model,
             *linreg_feature_extractor,
             control_times,
@@ -111,7 +112,7 @@ int main(int argc, char* argv[]) {
         }
 
         auto linreg_loss = eval_hedge_parameters(
-            product,
+            *product,
             *model,
             *linreg_feature_extractor,
             *linreg_controller,

@@ -60,7 +60,7 @@ public:
     MonteCarloGradientTrainer(
         Config config,
         StochasticModelImpl& model,
-        const Product& product,
+        const ProductImpl& product,
         StochasticProgram& objective,
         Optimiser& optimiser
     )
@@ -170,7 +170,7 @@ private:
 private:
     Config config_;
     StochasticModelImpl& model_;
-    const Product& product_;
+    const ProductImpl& product_;
     StochasticProgram& objective_;
     Optimiser& optimiser_;
     MonteCarloExecutor mc_config_;

@@ -42,7 +42,7 @@ struct BoundControlIntervals {
     std::vector<int64_t> end_idx;
 };
 
-BoundControlIntervals bind_to_grid(const ControlIntervals& control_intervals, const std::vector<double>& grid) {
+BoundControlIntervals bind_control_to_grid(const ControlIntervals& control_intervals, const std::vector<double>& grid) {
     BoundControlIntervals out;
     out.start_idx.reserve(control_intervals.n_intervals());
     out.end_idx.reserve(control_intervals.n_intervals());
@@ -54,6 +54,21 @@ BoundControlIntervals bind_to_grid(const ControlIntervals& control_intervals, co
         TORCH_CHECK(s < e, "start index must be < end index");
         out.start_idx.push_back(s);
         out.end_idx.push_back(e);
+    }
+    return out;
+}
+
+using ProductTimes = std::vector<double>;
+using BoundProductTimes = std::vector<int64_t>;
+
+BoundProductTimes bind_product_to_grid(const ProductTimes& product_times, const std::vector<double>& grid) {
+    BoundProductTimes out;
+    out.reserve(product_times.size());
+
+    for (size_t k = 0; k < product_times.size(); ++k) {
+        auto idx = find_time_index(grid, product_times[k]);
+        TORCH_CHECK(idx >= 0, "product time not on grid");
+        out.push_back(idx);
     }
     return out;
 }

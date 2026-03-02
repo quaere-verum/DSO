@@ -6,7 +6,7 @@
 class RecurrentOptionFeatureExtractorImpl final : public DSO::FeatureExtractorImpl {
 
 public:
-    RecurrentOptionFeatureExtractorImpl(const DSO::Option& option)
+    RecurrentOptionFeatureExtractorImpl(const DSO::OptionImpl& option)
         : option_(option)
     {
         auto opts = torch::TensorOptions()
@@ -64,7 +64,7 @@ public:
     const std::optional<size_t> hidden_state_dim() const override { return 1; }
 
 private:
-    const DSO::Option& option_;
+    const DSO::OptionImpl& option_;
 
     double strike_inv_;
     torch::Tensor maturity_;
@@ -78,7 +78,7 @@ TORCH_MODULE(RecurrentOptionFeatureExtractor);
 class HestonOptionFeatureExtractorImpl final : public DSO::FeatureExtractorImpl {
 
 public:
-    HestonOptionFeatureExtractorImpl(const DSO::Option& option)
+    HestonOptionFeatureExtractorImpl(const DSO::OptionImpl& option)
         : option_(option)
     {
         auto opts = torch::TensorOptions()
@@ -113,7 +113,7 @@ public:
     const std::optional<size_t> hidden_state_dim() const override { return std::nullopt; }
 
 private:
-    const DSO::Option& option_;
+    const DSO::OptionImpl& option_;
 
     double strike_inv_;
     torch::Tensor maturity_;

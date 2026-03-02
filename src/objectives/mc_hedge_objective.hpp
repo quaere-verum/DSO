@@ -13,7 +13,7 @@ namespace DSO {
 class MCHedgeObjective final : public StochasticProgram {
     public:
         MCHedgeObjective(
-            const Product& product,
+            const ProductImpl& product,
             const ControllerImpl& controller,
             const HedgingEngine& hedging_engine,
             const RiskMeasureImpl& risk_measure,
@@ -43,7 +43,7 @@ class MCHedgeObjective final : public StochasticProgram {
         uint64_t epoch_rng_offset() const { return epoch_rng_offset_; }
 
     private:
-        const Product& product_;
+        const ProductImpl& product_;
         const ControllerImpl& controller_;
         const HedgingEngine& hedging_engine_;
         const RiskMeasureImpl& risk_measure_;

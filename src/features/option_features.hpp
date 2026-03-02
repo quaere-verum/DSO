@@ -6,7 +6,7 @@
 namespace DSO {
 class OptionFeatureExtractorImpl final : public FeatureExtractorImpl {
     public:
-        OptionFeatureExtractorImpl(const Option& option) 
+        OptionFeatureExtractorImpl(const OptionImpl& option) 
         : option_(option) {
             strike_inv_ = 1.0 / option_.strike();
             tau_ = option_.maturity();
@@ -28,7 +28,7 @@ class OptionFeatureExtractorImpl final : public FeatureExtractorImpl {
         const size_t feature_dim() const override {return 2;};
 
     private:
-        const Option& option_;
+        const OptionImpl& option_;
         double strike_inv_;
         double tau_;
 };

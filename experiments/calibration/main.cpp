@@ -33,6 +33,13 @@ int main() {
         double strike = 100.0;
         auto product = DSO::EuropeanCallOption(maturity, strike);
         double product_price = 7.97; // Black-Scholes implied vol = 20%
+
+        DSO::SimulationGridSpec gridspec;
+        gridspec.time_grid = product->time_grid();
+        gridspec.include_t0 = product->include_t0();
+
+        product->bind(gridspec);
+
         DSO::HestonModelParameters initial_params;
         initial_params.s0 = 100.0;
         initial_params.v0 = 0.04;
@@ -45,7 +52,7 @@ int main() {
             true
         );
         auto model = DSO::HestonModel(model_config);
-        
+
         for (auto& named_param : model->named_parameters()) {
             const auto& name = named_param.key();
             auto& param = named_param.value();
@@ -57,12 +64,9 @@ int main() {
         }
         auto objective = DSO::MCCalibrationObjective(
             product_price,
-            product
+            *product
         );
-        DSO::SimulationGridSpec gridspec;
-        gridspec.time_grid = product.time_grid();
-        gridspec.include_t0 = product.include_t0();
-        model->init(gridspec);
+        model->bind(gridspec);
         double lr = 1e-1;
         auto optim = DSO::Adam(torch::optim::Adam(model->parameters(), torch::optim::AdamOptions(lr)));
         auto trainer = DSO::MonteCarloGradientTrainer(
@@ -71,7 +75,7 @@ int main() {
                 n_paths
             ),
             *model,
-            product,
+            *product,
             objective,
             optim
         );

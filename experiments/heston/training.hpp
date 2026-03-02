@@ -6,7 +6,7 @@
 
 
 void train_hedge_parameters(
-    const DSO::Product& product,
+    DSO::ProductImpl& product,
     DSO::StochasticModelImpl& model,
     DSO::FeatureExtractorImpl& feature_extractor,
     DSO::ControllerImpl& controller,
@@ -28,19 +28,20 @@ void train_hedge_parameters(
         control_times.end()
     );
 
+    auto hedging_engine = DSO::HedgingEngine(cfg.product_price, intervals);
+
     auto master_grid = DSO::merge_time_grids(control_times, product.time_grid());
 
     DSO::SimulationGridSpec gridspec;
     gridspec.include_t0 = product.include_t0() || control_times.front() < 1e-12;
     gridspec.time_grid = master_grid;
-    model.init(gridspec);
+    model.bind(gridspec);
+    product.bind(gridspec);
+    hedging_engine.bind(gridspec);
 
     for (auto& p : feature_extractor.parameters()) p.requires_grad_(true);
     for (auto& p : controller.parameters()) p.requires_grad_(true);
     for (auto& p : risk->parameters()) p.requires_grad_(true);
-
-    auto hedging_engine = DSO::HedgingEngine(cfg.product_price, intervals);
-    hedging_engine.bind(gridspec);
 
     auto objective = DSO::MCHedgeObjective(
         product,

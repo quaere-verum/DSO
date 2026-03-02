@@ -92,13 +92,14 @@ class MonteCarloLoss {
 };
 
 double eval_hedge_parameters(
-    const DSO::Product& product,
+    DSO::ProductImpl& product,
     DSO::StochasticModelImpl& model,
     DSO::FeatureExtractorImpl& feature_extractor,
     DSO::ControllerImpl& controller,
     std::vector<double>& control_times,
     const ExperimentConfig& cfg
 ) {
+    torch::NoGradGuard no_grad;
     model.eval();
     for (auto& p : model.parameters()) p.requires_grad_(false);
 
@@ -112,22 +113,22 @@ double eval_hedge_parameters(
         control_times.end()
     );
 
+    auto hedging_engine = DSO::HedgingEngine(cfg.product_price, intervals);
+
     auto master_grid = DSO::merge_time_grids(control_times, product.time_grid());
 
     DSO::SimulationGridSpec gridspec;
     gridspec.include_t0 = product.include_t0() || control_times.front() < 1e-12;
     gridspec.time_grid = master_grid;
-    model.init(gridspec);
+    model.bind(gridspec);
+    product.bind(gridspec);
+    hedging_engine.bind(gridspec);
 
     for (auto& p : feature_extractor.parameters()) p.requires_grad_(false);
     for (auto& p : controller.parameters()) p.requires_grad_(false);
 
     feature_extractor.eval();
     controller.eval();
-
-    auto hedging_engine = DSO::HedgingEngine(cfg.product_price, intervals);
-    hedging_engine.bind(gridspec);
-
 
     DSO::BatchSpec batch;
     batch.batch_index = 0;

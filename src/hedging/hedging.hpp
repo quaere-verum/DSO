@@ -27,12 +27,12 @@ class HedgingEngine {
         void bind(const SimulationGridSpec& spec) {
             const double T = spec.time_grid.back();
             TORCH_CHECK(control_intervals_.start_times.back() < T - TIME_EPS, "Last control start must be strictly before maturity");
-            control_indices_ = bind_to_grid(control_intervals_, spec.time_grid);
+            control_indices_ = bind_control_to_grid(control_intervals_, spec.time_grid);
         };
 
         HedgingResult run(
             const SimulationResult& simulated,
-            const Product& product,
+            const ProductImpl& product,
             const ControllerImpl& controller,
             const FeatureExtractorImpl& feature_extractor
         ) const {
@@ -48,7 +48,6 @@ class HedgingEngine {
             if (hidden_state_dim) state.hidden_state = torch::zeros({B, (int64_t) *hidden_state_dim}, S.options());
 
             for (size_t k = 0; k < control_intervals_.n_intervals(); ++k) {
-
                 int64_t t0 = control_indices_.start_idx[k];
                 int64_t t1 = control_indices_.end_idx[k];
 
@@ -68,9 +67,7 @@ class HedgingEngine {
 
                 wealth += hedge * (S.select(1, t1) - state.spot);
             }
-
             torch::Tensor pnl = wealth - payoff;
-
             return {wealth, payoff, pnl};
         }
 

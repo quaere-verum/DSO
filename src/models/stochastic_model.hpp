@@ -17,7 +17,7 @@ class StochasticModelImpl : public torch::nn::Module {
             const BatchSpec& batch,
             const EvalContext& ctx
         ) = 0;
-        virtual void init(const SimulationGridSpec& spec) = 0;
+        virtual void bind(const SimulationGridSpec& spec) = 0;
         virtual const std::vector<DSO::FactorType>& factors() const = 0;
     };
 } // namespace DSO

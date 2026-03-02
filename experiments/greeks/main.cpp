@@ -69,7 +69,7 @@ class MonteCarloValuation {
             build_second_order_structure_();
         }
 
-        ValueResult value(const DSO::Product& product) {
+        ValueResult value(const DSO::ProductImpl& product) {
 
             auto acc = executor_.run<ValuationAccumResult>(
                 config_.n_paths,
@@ -160,7 +160,7 @@ class MonteCarloValuation {
         }
 
         ValuationAccumResult batch_fn_(
-            const DSO::Product& product,
+            const DSO::ProductImpl& product,
             size_t b,
             size_t first_path,
             size_t batch_n,
@@ -266,7 +266,6 @@ int main() {
     );
     double maturity = 1.0;
     double strike = 100.0;
-    // auto product = DSO::AsianCallOption(maturity, strike, 252);
     auto product = DSO::EuropeanCallOption(maturity, strike);
     double s0 = 100.0;
     double sigma = 0.20;
@@ -274,11 +273,10 @@ int main() {
         DSO::BlackScholesModelImpl::Config({s0, sigma}, false)
     );
     DSO::SimulationGridSpec gridspec;
-    gridspec.include_t0 = product.include_t0();
-    for (auto t : product.time_grid()) {
-        gridspec.time_grid.push_back(t);
-    }
-    model->init(gridspec);
+    gridspec.include_t0 = product->include_t0();
+    gridspec.time_grid = product->time_grid();
+    model->bind(gridspec);
+    product->bind(gridspec);
 
     std::vector<std::tuple<std::string, std::string>> second_order_derivatives = {
         {"s0", "s0"}, 
@@ -290,7 +288,7 @@ int main() {
         *model
     );
     auto start = std::chrono::high_resolution_clock::now();
-    auto value = valuator.value(product);
+    auto value = valuator.value(*product);
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
         end - start
