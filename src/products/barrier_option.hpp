@@ -6,12 +6,23 @@
 #include <tuple>
 
 namespace DSO {
-class LookbackCallOptionImpl final : public ProductImpl {
+
+class DownAndOutCallOptionImpl final : public ProductImpl {
     public:
-        LookbackCallOptionImpl(double maturity, std::vector<double> monitoring_grid, double softplus_beta = 1.0)
+        DownAndOutCallOptionImpl(
+            double maturity,
+            double strike,
+            double barrier,
+            std::vector<double> monitoring_grid,
+            double softplus_beta = 1.0,
+            double barrier_beta = 20.0
+        )
         : maturity_(maturity)
+        , strike_(strike)
+        , barrier_(barrier)
         , time_grid_(std::move(monitoring_grid))
-        , softplus_beta_(softplus_beta) {
+        , softplus_beta_(softplus_beta)
+        , barrier_beta_(barrier_beta) {
             time_indices_ = register_buffer("time_indices", torch::empty({0}, torch::kLong));
         }
 
@@ -20,34 +31,65 @@ class LookbackCallOptionImpl final : public ProductImpl {
 
         torch::Tensor compute_payoff(const SimulationResult& simulated) const override {
             TORCH_CHECK(time_indices_.defined(), "Product: Bind product to SimulationGrid before computing payoff");
-            auto max_prices = std::get<0>(simulated.spot.index_select(1, time_indices_).max(1));
+
+            auto monitored_spot = simulated.spot.index_select(1, time_indices_);
+            auto min_prices = std::get<0>(monitored_spot.min(1));
+
             auto final_price = simulated.spot.select(1, maturity_index_);
-            return torch::relu(max_prices - final_price);
+
+            auto intrinsic = torch::relu(final_price - strike_);
+
+            auto alive = (min_prices > barrier_).to(intrinsic.dtype());
+
+            return intrinsic * alive;
         }
 
         torch::Tensor compute_smooth_payoff(const SimulationResult& simulated) const override {
             TORCH_CHECK(time_indices_.defined(), "Product: Bind product to SimulationGrid before computing payoff");
-            auto max_prices = std::get<0>(simulated.spot.index_select(1, time_indices_).max(1));
+
+            auto monitored_spot = simulated.spot.index_select(1, time_indices_);
+            auto min_prices = std::get<0>(monitored_spot.min(1));
+
             auto final_price = simulated.spot.select(1, maturity_index_);
-            return torch::softplus(max_prices - final_price, softplus_beta_);
-        };
+
+            auto intrinsic = torch::softplus(final_price - strike_, softplus_beta_);
+
+            auto alive_prob = torch::sigmoid(barrier_beta_ * (min_prices - barrier_));
+
+            return intrinsic * alive_prob;
+        }
 
         void bind(const SimulationGridSpec& spec) {
             auto time_indices_vec = bind_product_to_grid(time_grid_, spec.time_grid);
-            time_indices_ = torch::tensor(time_indices_vec, torch::TensorOptions().dtype(torch::kLong).device(time_indices_.device()));
+            time_indices_ = torch::tensor(
+                time_indices_vec,
+                torch::TensorOptions().dtype(torch::kLong).device(time_indices_.device())
+            );
+
             maturity_index_ = time_indices_.select(0, -1).item<int64_t>();
         }
 
         const bool include_t0() const override { return false; }
-        const double maturity() const { return maturity_; }        
-    
+
+        const double maturity() const { return maturity_; }
+        const double barrier() const { return barrier_; }
+        const double strike() const { return strike_; }
+
     private:
         double maturity_;
+        double strike_;
+        double barrier_;
         double softplus_beta_;
+        double barrier_beta_;
+
         ProductTimes time_grid_;
+
         torch::Tensor time_indices_;
         int64_t maturity_index_;
+
         std::vector<DSO::FactorType> factors_ = {DSO::FactorType::Spot};
 };
-TORCH_MODULE(LookbackCallOption);
+
+TORCH_MODULE(DownAndOutCallOption);
+
 } // namespace DSO

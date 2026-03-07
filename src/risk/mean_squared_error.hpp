@@ -5,7 +5,7 @@
 namespace DSO {
 class MeanSquareRiskImpl final : public RiskMeasureImpl {
     public:
-        torch::Tensor forward(const HedgingResult& hedging_result) const override {
+        torch::Tensor forward(const HedgingResult& hedging_result) override {
             return hedging_result.pnl.square().mean();
         }
 };

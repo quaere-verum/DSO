@@ -28,7 +28,7 @@ public:
         controller_ = register_module("controller", controller);
     }
 
-    torch::Tensor forward(const torch::Tensor& features) const override {
+    torch::Tensor forward(const torch::Tensor& features) override {
         return controller_->forward(features).squeeze(1);
     }
 

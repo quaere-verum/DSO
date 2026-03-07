@@ -1,23 +1,27 @@
 #pragma once
-#include "config.hpp"
+#include "experiment_context.hpp"
 #include "dso.hpp"
-#include "risk_factory.hpp"
 #include <torch/torch.h>
+#include "risk_factory.hpp"
 
-
-void train_hedge_parameters(
-    DSO::ProductImpl& product,
-    DSO::StochasticModelImpl& model,
-    DSO::FeatureExtractorImpl& feature_extractor,
-    DSO::ControllerImpl& controller,
-    std::vector<double>& control_times,
-    const ExperimentConfig& cfg
-) {
+void train_hedge_parameters(ExperimentContext& experiment_ctx) {
+    auto& product = experiment_ctx.product;
+    auto& model = experiment_ctx.model;
+    auto& feature_extractor = experiment_ctx.feature_extractor;
+    auto& controller = experiment_ctx.controller;
+    auto& control_times = experiment_ctx.control_times;
+    auto& cfg = experiment_ctx.config;
     auto risk = make_risk(cfg);
+
+    product->to(cfg.device);
+    model->to(cfg.device);
+    feature_extractor->to(cfg.device);
+    controller->to(cfg.device);
     risk->to(cfg.device);
 
-    model.eval();
-    for (auto& p : model.parameters()) p.requires_grad_(false);
+    model->eval();
+    for (auto& p : model->parameters()) p.requires_grad_(false);
+    
     DSO::ControlIntervals intervals;
     intervals.start_times.assign(
         control_times.begin(),
@@ -28,33 +32,33 @@ void train_hedge_parameters(
         control_times.end()
     );
 
-    auto hedging_engine = DSO::HedgingEngine(cfg.product_price, intervals);
+    auto hedging_engine = DSO::HedgingEngine(cfg.product_price, intervals, cfg.transaction_cost_rate, cfg.train_with_smooth_payoff);
 
-    auto master_grid = DSO::merge_time_grids(control_times, product.time_grid());
+    auto master_grid = DSO::merge_time_grids(control_times, product->time_grid());
 
     DSO::SimulationGridSpec gridspec;
-    gridspec.include_t0 = product.include_t0() || control_times.front() < 1e-12;
+    gridspec.include_t0 = product->include_t0() || control_times.front() < 1e-12;
     gridspec.time_grid = master_grid;
-    model.bind(gridspec);
-    product.bind(gridspec);
+    model->bind(gridspec);
+    product->bind(gridspec);
     hedging_engine.bind(gridspec);
 
-    for (auto& p : feature_extractor.parameters()) p.requires_grad_(true);
-    for (auto& p : controller.parameters()) p.requires_grad_(true);
+    for (auto& p : feature_extractor->parameters()) p.requires_grad_(true);
+    for (auto& p : controller->parameters()) p.requires_grad_(true);
     for (auto& p : risk->parameters()) p.requires_grad_(true);
 
     auto objective = DSO::MCHedgeObjective(
-        product,
-        controller,
+        *product,
+        *controller,
         hedging_engine,
         *risk,
-        feature_extractor
+        *feature_extractor
     );
 
     std::vector<torch::Tensor> params;
 
-    auto control_params = controller.parameters();
-    auto feat_params = feature_extractor.parameters();
+    auto control_params = controller->parameters();
+    auto feat_params = feature_extractor->parameters();
     auto risk_params = risk->parameters();
 
     params.insert(params.end(), control_params.begin(), control_params.end());
@@ -67,17 +71,16 @@ void train_hedge_parameters(
             torch::optim::AdamOptions(cfg.learning_rate)
         )
     );
+
     auto mc_config = DSO::MonteCarloExecutor::Config(cfg.n_threads, cfg.batch_size, cfg.seed, false, cfg.device);
     auto trainer =
         DSO::MonteCarloGradientTrainer(
-            { mc_config, cfg.n_paths, cfg.device },
-            model,
-            product,
+            { mc_config, cfg.n_train_paths, cfg.device },
+            *model,
+            *product,
             objective,
             optim
         );
-
-    std::cout << "\nSTART TRAINING\n";
 
     double lr = cfg.learning_rate;
     auto start = std::chrono::high_resolution_clock::now();
@@ -97,7 +100,7 @@ void train_hedge_parameters(
         }
     }
     auto end = std::chrono::high_resolution_clock::now();
-    std::cout << "TRAINING FINISHED\n";
     std::cout << "Duration=" 
     << static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()) * 1e-3 << "s\n";
+    return;
 }

@@ -12,6 +12,8 @@ struct SimulationState {
     torch::Tensor variance;
     torch::Tensor short_rate;
     torch::Tensor hidden_state;
+    torch::Tensor spot_cumulative_min;
+    torch::Tensor spot_cumulative_max;
     double t;
     double t_next;
 };
@@ -25,7 +27,7 @@ class FeatureExtractorImpl : public torch::nn::Module {
     public:
         virtual ~FeatureExtractorImpl() = default;
 
-        virtual FeatureExtractorResult forward(const SimulationState& state) const = 0;
+        virtual FeatureExtractorResult forward(const SimulationState& state) = 0;
         virtual const std::optional<size_t> hidden_state_dim() const = 0;
         virtual const size_t feature_dim() const = 0;
 

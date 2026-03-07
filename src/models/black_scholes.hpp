@@ -94,7 +94,7 @@ class BlackScholesModelImpl final : public StochasticModelImpl {
             bool use_log_sigma;
         };
         BlackScholesModelImpl(const Config& config)
-        : config_(config) {
+        : config_(std::move(config)) {
             auto opt = torch::TensorOptions().dtype(torch::kFloat32);
             s0_tensor_ = register_parameter("s0", torch::tensor({static_cast<float>(config_.parameters.s0)}, opt));
             if (config_.use_log_sigma) {
@@ -184,7 +184,7 @@ class BlackScholesModelImpl final : public StochasticModelImpl {
         torch::Tensor get_sigma_() const { return config_.use_log_sigma ? torch::exp(log_sigma_tensor_) : sigma_tensor_; }
 
     private:
-        const Config& config_;
+        const Config config_;
 
         torch::Tensor dt_;
         torch::Tensor sqrt_dt_;

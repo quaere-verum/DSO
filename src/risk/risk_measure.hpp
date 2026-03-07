@@ -7,7 +7,7 @@ namespace DSO {
 class RiskMeasureImpl : public torch::nn::Module {
     public:
         virtual ~RiskMeasureImpl() = default;
-        virtual torch::Tensor forward(const HedgingResult& hedging_result) const = 0;
+        virtual torch::Tensor forward(const HedgingResult& hedging_result) = 0;
 };
 
 } // namespace DSO

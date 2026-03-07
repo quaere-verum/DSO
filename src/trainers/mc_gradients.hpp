@@ -117,7 +117,6 @@ private:
         auto* perf = eval_ctx.perf;
 
         auto simulated = model_.simulate_batch(batch, eval_ctx);
-        
         torch::Tensor loss;
         {
             std::optional<DSO::ScopedTimer> t;

@@ -244,7 +244,7 @@ class HestonModelImpl final : public StochasticModelImpl {
         HestonModelImpl(
             const Config& config
         )
-        : config_(config) {
+        : config_(std::move(config)) {
             auto opt = torch::TensorOptions().dtype(torch::kFloat32);
 
             s0_tensor_ = register_parameter("s0", torch::tensor({(float)config_.parameters.s0}, opt));
@@ -287,7 +287,6 @@ class HestonModelImpl final : public StochasticModelImpl {
             const EvalContext& ctx
         ) override {
             TORCH_CHECK(init_spec_ != nullptr, "call bind before simulate");
-
             auto device = ctx.device;
             auto dtype = ctx.dtype;
 
@@ -316,7 +315,6 @@ class HestonModelImpl final : public StochasticModelImpl {
                 z1 = torch::randn({B, n_steps}, opt);
                 z2 = torch::randn({B, n_steps}, opt);
             }
-
             // --- Correlate Brownian motions ---
             auto rho = get_rho_();
             auto z_v = z1;
@@ -348,14 +346,12 @@ class HestonModelImpl final : public StochasticModelImpl {
                 auto dlogS = -0.5 * v_pos * dt_[t] + torch::sqrt(v_pos * dt_[t]) * z_s.index({torch::indexing::Slice(), t});
                 logS.index_put_({torch::indexing::Slice(), t + 1}, logS.index({torch::indexing::Slice(), t}) + dlogS);
             }
-
             auto spot = torch::exp(logS);
 
             if (!init_spec_->include_t0) {
                 spot = spot.index({torch::indexing::Slice(), torch::indexing::Slice(1, torch::indexing::None)});
                 var = var.index({torch::indexing::Slice(), torch::indexing::Slice(1, torch::indexing::None)});
             }
-
             out.spot = spot;
             out.variance = var;
             return out;
@@ -380,7 +376,7 @@ class HestonModelImpl final : public StochasticModelImpl {
         }
 
     private:
-        const Config& config_;
+        const Config config_;
 
         torch::Tensor dt_;
         torch::Tensor sqrt_dt_;

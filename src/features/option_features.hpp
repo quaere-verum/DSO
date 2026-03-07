@@ -12,7 +12,7 @@ class OptionFeatureExtractorImpl final : public FeatureExtractorImpl {
             tau_ = option_.maturity();
         }
 
-        FeatureExtractorResult forward(const SimulationState& state) const override {
+        FeatureExtractorResult forward(const SimulationState& state) override {
             std::vector<torch::Tensor> features;
             features.reserve(feature_dim());
             const auto S = state.spot;

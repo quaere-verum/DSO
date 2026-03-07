@@ -8,7 +8,7 @@ class EntropicRiskImpl final : public RiskMeasureImpl {
         explicit EntropicRiskImpl(double gamma)
             : gamma_(gamma) {}
 
-        torch::Tensor forward(const HedgingResult& hedging_result) const override {
+        torch::Tensor forward(const HedgingResult& hedging_result) override {
             const auto& pnl = hedging_result.pnl;
             torch::Tensor scaled = gamma_ * pnl;
 

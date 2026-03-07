@@ -8,7 +8,7 @@ class MeanVarianceRiskImpl final : public RiskMeasureImpl {
         explicit MeanVarianceRiskImpl(double lambda)
             : lambda_(lambda) {}
 
-        torch::Tensor forward(const HedgingResult& hedging_result) const override {
+        torch::Tensor forward(const HedgingResult& hedging_result) override {
             const auto& pnl = hedging_result.pnl;
             auto mean = pnl.mean();
             auto var  = (pnl - mean).square().mean();

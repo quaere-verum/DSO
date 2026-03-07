@@ -83,7 +83,7 @@ foreach(DIR ${SUBDIRS})
         target_link_libraries(${EXP_NAME} PRIVATE dso_core)
         target_include_directories(${EXP_NAME} PRIVATE 
             ${CMAKE_CURRENT_SOURCE_DIR}/src
-            "experiments/${DIR}" # So #include "heston_utils.hpp" works
+            "experiments/${DIR}"
         )
         
         target_compile_features(${EXP_NAME} PRIVATE cxx_std_23)

@@ -14,10 +14,10 @@ class MCHedgeObjective final : public StochasticProgram {
     public:
         MCHedgeObjective(
             const ProductImpl& product,
-            const ControllerImpl& controller,
+            ControllerImpl& controller,
             const HedgingEngine& hedging_engine,
-            const RiskMeasureImpl& risk_measure,
-            const FeatureExtractorImpl& feature_extractor
+            RiskMeasureImpl& risk_measure,
+            FeatureExtractorImpl& feature_extractor
         )
         : product_(product)
         , controller_(controller)
@@ -44,10 +44,10 @@ class MCHedgeObjective final : public StochasticProgram {
 
     private:
         const ProductImpl& product_;
-        const ControllerImpl& controller_;
+        ControllerImpl& controller_;
         const HedgingEngine& hedging_engine_;
-        const RiskMeasureImpl& risk_measure_;
-        const FeatureExtractorImpl& feature_extractor_;
+        RiskMeasureImpl& risk_measure_;
+        FeatureExtractorImpl& feature_extractor_;
 
         size_t epoch_ = 0;
         uint64_t epoch_rng_offset_ = 0;
