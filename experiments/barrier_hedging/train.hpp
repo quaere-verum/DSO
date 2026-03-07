@@ -77,7 +77,6 @@ void train_hedge_parameters(ExperimentContext& experiment_ctx) {
         DSO::MonteCarloGradientTrainer(
             { mc_config, cfg.n_train_paths, cfg.device },
             *model,
-            *product,
             objective,
             optim
         );

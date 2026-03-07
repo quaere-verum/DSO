@@ -7,7 +7,7 @@ $exe = ".\build\exp_barrier_hedging.exe"
 # Fixed parameters
 $train_paths = 250000
 $eval_paths  = 1000000
-$batch_size  = 250000
+$batch_size  = 125000
 $maturity    = 1.0
 $time_steps  = 252
 $lr          = 0.075
@@ -17,13 +17,13 @@ $barrier     = 80.0
 
 # Swept parameters
 $hedge_freqs = @(252)
-$variance_modes = @("instant", "learned")
+$variance_modes = @("learned", "instant")
 $risk_measures = @("cvar", "mse")
 
 # Hidden architectures
 $hidden_configs = @(
-    "",            # Linear
-    "16",
+    # "",            # Linear
+    # "16",
     "16 16"
 )
 

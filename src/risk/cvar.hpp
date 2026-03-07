@@ -9,6 +9,7 @@ class CVaRRiskImpl final : public RiskMeasureImpl {
         explicit CVaRRiskImpl(double alpha, bool trainable_z = false)
             : alpha_(alpha)
             , trainable_z_(trainable_z) {
+                TORCH_CHECK(alpha_ > 0.0 && alpha_ < 1.0, "alpha must be in (0,1)");
                 if (trainable_z_) z_ = register_parameter("z", torch::zeros({1}, torch::TensorOptions().dtype(torch::kFloat32)));
             }
 

@@ -242,7 +242,7 @@ class HestonModelImpl final : public StochasticModelImpl {
             bool use_logit_params;
         };
         HestonModelImpl(
-            const Config& config
+            const Config config
         )
         : config_(std::move(config)) {
             auto opt = torch::TensorOptions().dtype(torch::kFloat32);
@@ -278,7 +278,6 @@ class HestonModelImpl final : public StochasticModelImpl {
             // 2. Move to the target device safely
             auto target_device = s0_tensor_.device();
             dt_ = dt_cpu.to(target_device); 
-            sqrt_dt_ = torch::sqrt(dt_);
             init_spec_ = &spec;
         }
 
@@ -289,6 +288,7 @@ class HestonModelImpl final : public StochasticModelImpl {
             TORCH_CHECK(init_spec_ != nullptr, "call bind before simulate");
             auto device = ctx.device;
             auto dtype = ctx.dtype;
+            TORCH_CHECK(dtype == torch::kFloat32, "HestonModelImpl currently supports float32 only");
 
             SimulationResult out;
             const int64_t B = batch.n_paths;
@@ -379,7 +379,6 @@ class HestonModelImpl final : public StochasticModelImpl {
         const Config config_;
 
         torch::Tensor dt_;
-        torch::Tensor sqrt_dt_;
         const SimulationGridSpec* init_spec_ = nullptr;
 
         torch::Tensor s0_tensor_;
@@ -388,7 +387,7 @@ class HestonModelImpl final : public StochasticModelImpl {
         torch::Tensor log_kappa_, log_theta_, log_xi_, logit_rho_;
         torch::Tensor kappa_, theta_, xi_, rho_;
 
-        std::vector<DSO::FactorType> factors_ = {DSO::FactorType::Spot};
+        std::vector<DSO::FactorType> factors_ = {DSO::FactorType::Spot, DSO::FactorType::Variance};
 };
 
 TORCH_MODULE(HestonModel);

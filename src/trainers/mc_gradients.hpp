@@ -60,19 +60,16 @@ public:
     MonteCarloGradientTrainer(
         Config config,
         StochasticModelImpl& model,
-        const ProductImpl& product,
         StochasticProgram& objective,
         Optimiser& optimiser
     )
         : config_(std::move(config))
         , model_(model)
-        , product_(product)
         , objective_(objective)
         , optimiser_(optimiser)
         , mc_config_(config_.mc_config) {
 
         TORCH_CHECK(config_.n_paths > 0, "MonteCarloGradientTrainer: n_paths must be > 0");
-        TORCH_CHECK(model_.factors() == product_.factors(), "MonteCarloGradientTrainer: model factors must match product factors");
         for (auto& group : optimiser_.param_groups()) {
             for (auto& p : group.params()) {
                 if (p.requires_grad()) trainable_params_.push_back(p);
@@ -169,7 +166,6 @@ private:
 private:
     Config config_;
     StochasticModelImpl& model_;
-    const ProductImpl& product_;
     StochasticProgram& objective_;
     Optimiser& optimiser_;
     MonteCarloExecutor mc_config_;

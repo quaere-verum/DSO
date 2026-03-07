@@ -75,7 +75,6 @@ int main() {
                 n_paths
             ),
             *model,
-            *product,
             objective,
             optim
         );
